@@ -63,7 +63,6 @@ CREATE TABLE IF NOT EXISTS broadcast_recipients (
 );
 
 CREATE INDEX IF NOT EXISTS idx_broadcast_recipients_job ON broadcast_recipients(job_id, status);
-CREATE INDEX IF NOT EXISTS idx_broadcast_recipients_wa_id ON broadcast_recipients(wa_id, updated_at);
 `);
 
 // Additive migration guard - safe to re-run, needed for anyone upgrading
@@ -93,6 +92,10 @@ for (const stmt of [
     /* column already exists */
   }
 }
+
+// Only safe to create after the migration loop above, since it references a
+// column (updated_at) that only exists on older databases once that loop adds it.
+db.exec("CREATE INDEX IF NOT EXISTS idx_broadcast_recipients_wa_id ON broadcast_recipients(wa_id, updated_at)");
 
 // --- Contacts (conversation state + directory fields share one row per wa_id) ---
 
