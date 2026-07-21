@@ -17,6 +17,14 @@ function extractVarNumbers(text) {
   return [...new Set(matches)].sort((a, b) => a - b);
 }
 
+// This form only builds positional ({{1}}, {{2}}) templates. Meta also
+// supports named parameters ({{first_name}}) via a separate parameter_format
+// field this form doesn't set - if someone types a named-style placeholder
+// here it would silently submit as if it were plain text, not a variable.
+function hasNamedStylePlaceholder(text) {
+  return /\{\{[a-zA-Z_][a-zA-Z0-9_]*\}\}/.test(text || "");
+}
+
 const emptyForm = () => ({
   name: "",
   category: "UTILITY",
@@ -93,6 +101,11 @@ export default function Templates() {
     setInfo("");
 
     // Fail fast with a clear message instead of letting Meta bounce a 400.
+    if (hasNamedStylePlaceholder(form.headerText) || hasNamedStylePlaceholder(form.body)) {
+      return setError(
+        "This form only supports numbered variables like {{1}}, {{2}} - named placeholders like {{customer_name}} aren't supported here yet. Use numbers instead, or create this template directly in Meta Business Manager if you need named parameters (this app can still send to it either way)."
+      );
+    }
     if (headerVarNumbers.length > 0 && !form.headerExample.trim()) {
       return setError("The header text has a {{1}} variable — add an example value for it.");
     }

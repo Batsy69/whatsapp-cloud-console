@@ -8,21 +8,35 @@ function varCount(text) {
   return new Set((text || "").match(/\{\{\d+\}\}/g) || []).size;
 }
 
+// Named-parameter templates use {{first_name}} style instead of {{1}} -
+// Meta declares which style a template uses via its own `parameter_format`
+// field, so that's authoritative rather than re-guessing from the text.
+function extractNamedVars(text) {
+  const matches = [...(text || "").matchAll(/\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}/g)].map((m) => m[1]);
+  return [...new Set(matches)];
+}
+
 function analyzeTemplate(t) {
+  const isNamed = (t?.parameter_format || "POSITIONAL").toUpperCase() === "NAMED";
   const header = t?.components?.find((c) => c.type === "HEADER");
   const body = t?.components?.find((c) => c.type === "BODY");
   const footer = t?.components?.find((c) => c.type === "FOOTER");
   const buttonsComp = t?.components?.find((c) => c.type === "BUTTONS");
   const dynamicUrlButtonIndex = (buttonsComp?.buttons || []).findIndex(
-    (b) => b.type === "URL" && /\{\{\d+\}\}/.test(b.url || "")
+    (b) => b.type === "URL" && /\{\{.+?\}\}/.test(b.url || "")
   );
   const mediaHeaderFormats = ["IMAGE", "VIDEO", "DOCUMENT"];
+  const headerNamedVars = isNamed && header?.format === "TEXT" ? extractNamedVars(header.text) : [];
+  const bodyNamedVars = isNamed ? extractNamedVars(body?.text) : [];
   return {
+    isNamed,
     headerIsText: header?.format === "TEXT",
-    headerVarCount: header?.format === "TEXT" ? varCount(header.text) : 0,
+    headerVarCount: header?.format === "TEXT" ? (isNamed ? headerNamedVars.length : varCount(header.text)) : 0,
+    headerNamedVars,
     isMediaHeader: mediaHeaderFormats.includes(header?.format),
     headerMediaType: mediaHeaderFormats.includes(header?.format) ? header.format.toLowerCase() : null,
-    bodyVarCount: varCount(body?.text),
+    bodyVarCount: isNamed ? bodyNamedVars.length : varCount(body?.text),
+    bodyNamedVars,
     footerText: footer?.text,
     buttons: buttonsComp?.buttons || [],
     dynamicUrlButtonIndex,
@@ -400,7 +414,14 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
     try {
       const components = [];
       if (analysis.headerVarCount) {
-        components.push({ type: "header", parameters: headerVars.map((v) => ({ type: "text", text: v || "" })) });
+        components.push({
+          type: "header",
+          parameters: headerVars.map((v, i) =>
+            analysis.isNamed
+              ? { type: "text", parameter_name: analysis.headerNamedVars[i], text: v || "" }
+              : { type: "text", text: v || "" }
+          ),
+        });
       }
       if (analysis.isMediaHeader && headerMediaId) {
         components.push({
@@ -417,9 +438,21 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
         });
       }
 
+      // Preview rows always hold bare values internally (editing, bulk-apply,
+      // etc. don't need to care about parameter style) - only wrapped into
+      // Meta's { name, value } shape for named templates right here, at the
+      // point of actually building the request.
       const recipients = previewRows
         .filter((r) => r.included)
-        .map((r) => ({ wa_id: r.wa_id, variables: analysis.bodyVarCount > 0 ? r.variables : undefined }));
+        .map((r) => ({
+          wa_id: r.wa_id,
+          variables:
+            analysis.bodyVarCount > 0
+              ? analysis.isNamed
+                ? r.variables.map((v, i) => ({ name: analysis.bodyNamedVars[i], value: v }))
+                : r.variables
+              : undefined,
+        }));
 
       const scheduled_at = scheduleEnabled && scheduleAt ? new Date(scheduleAt).toISOString() : undefined;
 
@@ -532,7 +565,9 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
                 <th>Contact</th>
                 {Array.from({ length: analysis?.bodyVarCount || 0 }, (_, i) => (
                   <th key={i} className="var-col-header">
-                    <div style={{ fontFamily: "var(--mono)", marginBottom: 4 }}>{`{{${i + 1}}}`}</div>
+                    <div style={{ fontFamily: "var(--mono)", marginBottom: 4 }}>
+                      {analysis?.isNamed ? `{{${analysis.bodyNamedVars[i]}}}` : `{{${i + 1}}}`}
+                    </div>
                     <select
                       value={columnMode[i] || "fixed"}
                       onChange={(e) => handleColumnModeChange(i, e.target.value)}
@@ -666,7 +701,7 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
             <div className="field">
               <label>Header variables (same for every recipient)</label>
               {headerVars.map((v, i) => (
-                <input key={i} placeholder={`Header {{${i + 1}}}`} value={v}
+                <input key={i} placeholder={`Header {{${analysis?.isNamed ? analysis.headerNamedVars[i] : i + 1}}}`} value={v}
                   onChange={(e) => { const next = [...headerVars]; next[i] = e.target.value; setHeaderVars(next); }}
                   style={{ marginBottom: 6 }} />
               ))}

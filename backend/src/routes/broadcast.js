@@ -30,9 +30,20 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // saved directory fields when broadcasting to a group) override the shared
 // BODY component's parameters for that one send, leaving any shared
 // HEADER/BUTTON components untouched.
+//
+// Each entry in `recipientVariables` is either a bare value (positional
+// template - matched by array order) or `{ name, value }` (named template -
+// Meta requires a `parameter_name` on each parameter matching the
+// `{{name}}` placeholder). Mixing isn't valid on Meta's side, so a given
+// array is always one shape or the other, decided by the frontend based on
+// the template's own `parameter_format`.
 function mergeComponents(sharedComponents, recipientVariables) {
   if (!recipientVariables) return sharedComponents;
-  const bodyParams = recipientVariables.map((v) => ({ type: "text", text: String(v ?? "") }));
+  const bodyParams = recipientVariables.map((v) =>
+    v && typeof v === "object"
+      ? { type: "text", parameter_name: v.name, text: String(v.value ?? "") }
+      : { type: "text", text: String(v ?? "") }
+  );
   let replaced = false;
   const merged = (sharedComponents || []).map((c) => {
     if (c.type === "body") {
