@@ -16,9 +16,12 @@ function analyzeTemplate(t) {
   const dynamicUrlButtonIndex = (buttonsComp?.buttons || []).findIndex(
     (b) => b.type === "URL" && /\{\{\d+\}\}/.test(b.url || "")
   );
+  const mediaHeaderFormats = ["IMAGE", "VIDEO", "DOCUMENT"];
   return {
     headerIsText: header?.format === "TEXT",
     headerVarCount: header?.format === "TEXT" ? varCount(header.text) : 0,
+    isMediaHeader: mediaHeaderFormats.includes(header?.format),
+    headerMediaType: mediaHeaderFormats.includes(header?.format) ? header.format.toLowerCase() : null,
     bodyVarCount: varCount(body?.text),
     footerText: footer?.text,
     buttons: buttonsComp?.buttons || [],
@@ -141,6 +144,9 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
   const [templates, setTemplates] = useState([]);
   const [templateName, setTemplateName] = useState("");
   const [headerVars, setHeaderVars] = useState([]);
+  const [headerMediaId, setHeaderMediaId] = useState("");
+  const [headerMediaName, setHeaderMediaName] = useState("");
+  const [headerUploading, setHeaderUploading] = useState(false);
   const [buttonVar, setButtonVar] = useState("");
   const [recipientsText, setRecipientsText] = useState("");
   const [csvRows, setCsvRows] = useState([]);
@@ -197,7 +203,28 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
     const t = templates.find((x) => x.name === name);
     const a = t ? analyzeTemplate(t) : null;
     setHeaderVars(new Array(a?.headerVarCount || 0).fill(""));
+    setHeaderMediaId("");
+    setHeaderMediaName("");
     setButtonVar("");
+  }
+
+  const headerFileInputRef = useRef(null);
+
+  async function handleHeaderMediaUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setHeaderUploading(true);
+    setError("");
+    try {
+      const { media_id } = await api.uploadMedia(file);
+      setHeaderMediaId(media_id);
+      setHeaderMediaName(file.name);
+    } catch (e2) {
+      setError(e2.message);
+    } finally {
+      setHeaderUploading(false);
+      e.target.value = "";
+    }
   }
 
   function handleCsvFile(e) {
@@ -341,12 +368,22 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
 
   async function handleConfirmSend() {
     if (!selected || includedCount === 0) return;
+    if (analysis.isMediaHeader && !headerMediaId) {
+      setError(`This template needs a header ${analysis.headerMediaType} - go back and upload one before sending.`);
+      return;
+    }
     setBusy(true);
     setError("");
     try {
       const components = [];
       if (analysis.headerVarCount) {
         components.push({ type: "header", parameters: headerVars.map((v) => ({ type: "text", text: v || "" })) });
+      }
+      if (analysis.isMediaHeader && headerMediaId) {
+        components.push({
+          type: "header",
+          parameters: [{ type: analysis.headerMediaType, [analysis.headerMediaType]: { id: headerMediaId } }],
+        });
       }
       if (analysis.dynamicUrlButtonIndex > -1) {
         components.push({
@@ -550,6 +587,11 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
                     {selected.components.find((c) => c.type === "HEADER").text}
                   </div>
                 )}
+                {analysis.isMediaHeader && (
+                  <div style={{ fontSize: 11.5, color: "var(--text-soft)", marginBottom: 4 }}>
+                    📎 {analysis.headerMediaType} header — {headerMediaId ? "file attached below" : "upload required below"}
+                  </div>
+                )}
                 <div>{selected.components?.find((c) => c.type === "BODY")?.text}</div>
                 {analysis.footerText && (
                   <div style={{ color: "var(--text-soft)", fontSize: 11.5, marginTop: 6 }}>{analysis.footerText}</div>
@@ -579,6 +621,34 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
                   onChange={(e) => { const next = [...headerVars]; next[i] = e.target.value; setHeaderVars(next); }}
                   style={{ marginBottom: 6 }} />
               ))}
+            </div>
+          )}
+
+          {analysis?.isMediaHeader && (
+            <div className="field">
+              <label>
+                This template's header needs a {analysis.headerMediaType} for every send — upload one
+                (same file used for the whole broadcast; Meta requires it every time you send, not just at template creation)
+              </label>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <button
+                  type="button"
+                  className="btn-danger"
+                  style={{ borderColor: "var(--line)", color: "var(--text-soft)" }}
+                  disabled={headerUploading}
+                  onClick={() => headerFileInputRef.current?.click()}
+                >
+                  {headerUploading ? "Uploading..." : headerMediaId ? "Replace file" : `Choose ${analysis.headerMediaType}`}
+                </button>
+                <input
+                  ref={headerFileInputRef}
+                  type="file"
+                  accept={analysis.headerMediaType === "image" ? "image/*" : analysis.headerMediaType === "video" ? "video/*" : "application/pdf"}
+                  style={{ display: "none" }}
+                  onChange={handleHeaderMediaUpload}
+                />
+                {headerMediaId && <span style={{ fontSize: 12, color: "var(--accent)" }}>✓ {headerMediaName}</span>}
+              </div>
             </div>
           )}
 
@@ -644,7 +714,11 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
             )}
           </div>
 
-          <button className="btn-primary" disabled={!selected || recipientCount === 0 || (scheduleEnabled && !scheduleAt)} onClick={handleBuildPreview}>
+          <button
+            className="btn-primary"
+            disabled={!selected || recipientCount === 0 || (scheduleEnabled && !scheduleAt) || (analysis?.isMediaHeader && !headerMediaId)}
+            onClick={handleBuildPreview}
+          >
             Review {recipientCount} recipient(s) before sending
           </button>
         </div>

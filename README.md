@@ -118,6 +118,15 @@ and register `https://<your-ngrok-domain>/webhook` in the Meta App Dashboard
   variables, FOOTER, and up to 3 BUTTONS (quick reply, URL, phone number —
   including a dynamic `{{1}}` suffix on a URL button)
 - Live status from Meta (`PENDING` / `APPROVED` / `REJECTED`), delete
+- **Note on media headers**: the sample file uploaded during template
+  *creation* is only what Meta reviews the template against — every actual
+  *send* using that template still needs its own header media supplied
+  fresh (Meta's API requires this per-message, not just at creation time).
+  Broadcast handles this: selecting a template with a media header prompts
+  for a file upload before you can send, and it's included correctly in
+  every request (this was previously missing entirely and caused error
+  `#132012 Parameter format does not match format in the created template`
+  on any send using a media-header template).
 
 **Broadcast**
 - Only lists `APPROVED` templates (Meta rejects sends against pending ones)
