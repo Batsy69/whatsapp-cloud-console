@@ -5,7 +5,7 @@ import { normalizePhone } from "../phone.js";
 const router = Router();
 
 router.get("/", (req, res) => {
-  const rows = listDirectory(req.query.group_id ? Number(req.query.group_id) : null);
+  const rows = listDirectory(req.query.group_id ? Number(req.query.group_id) : null, req.query.failed === "1");
   res.json(rows.map((r) => ({ ...r, custom_fields: r.custom_fields ? JSON.parse(r.custom_fields) : null })));
 });
 

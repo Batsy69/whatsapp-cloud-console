@@ -79,6 +79,10 @@ for (const stmt of [
   "ALTER TABLE contacts ADD COLUMN custom_fields TEXT",
   "ALTER TABLE contacts ADD COLUMN group_id INTEGER",
   "ALTER TABLE broadcast_jobs ADD COLUMN scheduled_at INTEGER",
+  "ALTER TABLE contacts ADD COLUMN last_broadcast_status TEXT",
+  "ALTER TABLE contacts ADD COLUMN last_broadcast_error TEXT",
+  "ALTER TABLE contacts ADD COLUMN last_broadcast_template TEXT",
+  "ALTER TABLE contacts ADD COLUMN last_broadcast_at INTEGER",
 ]) {
   try {
     db.exec(stmt);
@@ -146,16 +150,38 @@ export function upsertDirectoryContact({ wa_id, name, company, city, state, emai
   }
 }
 
-export function listDirectory(groupId) {
-  const base = `
-    SELECT c.wa_id, c.name, c.company, c.city, c.state, c.email, c.custom_fields,
-           c.group_id, g.name AS group_name, c.last_message_at, c.archived
-    FROM contacts c
-    LEFT JOIN groups g ON g.id = c.group_id`;
-  if (groupId) {
-    return db.prepare(base + " WHERE c.group_id = ? ORDER BY c.name COLLATE NOCASE").all(groupId);
+// Records the outcome of the most recent broadcast attempt directly on the
+// contact, so a failure stays visible wherever that contact shows up (not
+// just buried in one job's history) and self-clears the moment a later send
+// to them succeeds. Creates a bare contact row if one doesn't exist yet,
+// since a failed send to a brand-new number should still surface somewhere.
+export function recordBroadcastResult(waId, { status, error, template }) {
+  const existing = db.prepare("SELECT wa_id FROM contacts WHERE wa_id = ?").get(waId);
+  if (!existing) {
+    db.prepare("INSERT INTO contacts (wa_id, name) VALUES (?, ?)").run(waId, waId);
   }
-  return db.prepare(base + " ORDER BY c.name COLLATE NOCASE").all();
+  db.prepare(
+    "UPDATE contacts SET last_broadcast_status = ?, last_broadcast_error = ?, last_broadcast_template = ?, last_broadcast_at = ? WHERE wa_id = ?"
+  ).run(status, error || null, template, Date.now(), waId);
+}
+
+export function listDirectory(groupId, failedOnly) {
+  const where = [];
+  const params = [];
+  if (groupId) { where.push("c.group_id = ?"); params.push(groupId); }
+  if (failedOnly) where.push("c.last_broadcast_status = 'failed'");
+  const whereClause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  return db
+    .prepare(
+      `SELECT c.wa_id, c.name, c.company, c.city, c.state, c.email, c.custom_fields,
+              c.group_id, g.name AS group_name, c.last_message_at, c.archived,
+              c.last_broadcast_status, c.last_broadcast_error, c.last_broadcast_template, c.last_broadcast_at
+       FROM contacts c
+       LEFT JOIN groups g ON g.id = c.group_id
+       ${whereClause}
+       ORDER BY c.name COLLATE NOCASE`
+    )
+    .all(...params);
 }
 
 const insertStmt = db.prepare(
@@ -312,6 +338,14 @@ export function getFailedRecipients(jobId, limit = 200) {
   return db
     .prepare("SELECT wa_id, error FROM broadcast_recipients WHERE job_id = ? AND status = 'failed' LIMIT ?")
     .all(jobId, limit);
+}
+
+// Full failed-recipient rows (with their original variables) for retrying a
+// job - no limit, since a retry needs every failure, not just a preview slice.
+export function getFailedRecipientsFull(jobId) {
+  return db
+    .prepare("SELECT wa_id, variables FROM broadcast_recipients WHERE job_id = ? AND status = 'failed'")
+    .all(jobId);
 }
 
 export function getAllRecipients(jobId) {

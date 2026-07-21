@@ -71,7 +71,7 @@ function previewNormalize(raw) {
   return digits.length === 10 ? "91" + digits : digits;
 }
 
-function ProgressPanel({ job, onExport, onCancel }) {
+function ProgressPanel({ job, onExport, onCancel, onRetry }) {
   if (!job) return <div style={{ fontSize: 13, color: "var(--text-soft)" }}>No broadcast selected yet.</div>;
 
   if (job.status === "scheduled") {
@@ -122,9 +122,16 @@ function ProgressPanel({ job, onExport, onCancel }) {
         </>
       )}
       {job.status === "completed" && (
-        <button className="btn-danger" style={{ marginTop: 12, borderColor: "var(--line)", color: "var(--text-soft)" }} onClick={() => onExport(job.id)}>
-          Download full results (CSV)
-        </button>
+        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          {job.failed > 0 && (
+            <button className="btn-primary" onClick={() => onRetry(job.id)}>
+              Retry {job.failed} failed
+            </button>
+          )}
+          <button className="btn-danger" style={{ borderColor: "var(--line)", color: "var(--text-soft)" }} onClick={() => onExport(job.id)}>
+            Download full results (CSV)
+          </button>
+        </div>
       )}
     </>
   );
@@ -394,6 +401,26 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
     }
   }
 
+  async function handleRetry(jobId) {
+    setError("");
+    try {
+      const res = await api.retryBroadcastJob(jobId);
+      setActiveJobId(res.job_id);
+      setActiveJob({
+        id: res.job_id,
+        template_name: activeJob?.template_name || "",
+        total: res.total,
+        sent: 0,
+        failed: 0,
+        status: res.status,
+        recent_failures: [],
+      });
+      refreshHistory();
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
   function handleExport(jobId) {
     window.open(api.exportBroadcastJobUrl(jobId), "_blank");
   }
@@ -624,7 +651,7 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
 
         <div className="card">
           <h3>{activeJob ? "Progress" : "Results"}</h3>
-          <ProgressPanel job={activeJob} onExport={handleExport} onCancel={handleCancel} />
+          <ProgressPanel job={activeJob} onExport={handleExport} onCancel={handleCancel} onRetry={handleRetry} />
 
           {history.length > 0 && (
             <>

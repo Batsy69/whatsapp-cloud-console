@@ -338,3 +338,12 @@ td { padding: 9px 8px; border-bottom: 1px solid var(--line); vertical-align: top
   background: var(--paper); border: 1px solid var(--line); border-radius: 8px;
   padding: 8px 14px; margin-bottom: 14px;
 }
+
+.status-badge {
+  font-size: 10.5px; padding: 3px 8px; border-radius: 20px; white-space: nowrap;
+}
+.status-badge.failed { background: var(--danger-soft); color: var(--danger); }
+.status-badge.sent { background: var(--accent-soft); color: #1f6b41; }
+
+.failed-chip { color: var(--danger) !important; }
+.failed-chip .group-count { background: var(--danger-soft); border-radius: 10px; padding: 1px 6px; }

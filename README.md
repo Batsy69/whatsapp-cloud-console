@@ -89,7 +89,17 @@ and register `https://<your-ngrok-domain>/webhook` in the Meta App Dashboard
 - Scheduled broadcasts show up in history as `scheduled` and can be
   cancelled before they fire
 
-**Phone number handling**
+**Failure tracking**
+- Every broadcast attempt (success or failure) is recorded directly on the
+  contact, not just buried in that one job's history — so a failure stays
+  visible wherever you're looking, not only while that specific job is open
+- A "⚠ Failed sends" filter appears in the Contacts sidebar whenever there
+  are any, showing exactly who didn't receive their last broadcast and why
+- The flag **self-clears** the moment a later send to that contact succeeds
+  — no manual cleanup needed
+- From a completed broadcast's progress panel, "Retry N failed" spins up a
+  new job targeting only the numbers that failed, reusing the same template
+  and their original per-recipient variables
 - Numbers are normalized before every send/broadcast/manual add: a bare
   10-digit number (e.g. `8655357804`) gets the default country code
   prefixed (`91` unless you set `DEFAULT_COUNTRY_CODE`), so it doesn't

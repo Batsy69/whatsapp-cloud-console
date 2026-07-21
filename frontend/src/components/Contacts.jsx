@@ -52,13 +52,20 @@ function parseDirectoryCsv(text) {
 
 const emptyForm = () => ({ wa_id: "", name: "", company: "", city: "", state: "", email: "", group_id: "" });
 
+// "group:3", "failed", or "all"
+function parseView(view) {
+  if (view === "all" || view === "failed") return { groupId: null, failedOnly: view === "failed" };
+  return { groupId: Number(view.split(":")[1]), failedOnly: false };
+}
+
 export default function Contacts({ onBroadcastToSelection }) {
   const [groups, setGroups] = useState([]);
-  const [activeGroupId, setActiveGroupId] = useState(null);
+  const [view, setView] = useState("all");
   const [contacts, setContacts] = useState([]);
+  const [failedCount, setFailedCount] = useState(0);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showForm, setShowForm] = useState(false);
-  const [editingWaId, setEditingWaId] = useState(null); // null = adding new, otherwise editing this contact
+  const [editingWaId, setEditingWaId] = useState(null);
   const [form, setForm] = useState(emptyForm());
   const [newGroupName, setNewGroupName] = useState("");
   const [error, setError] = useState("");
@@ -67,13 +74,19 @@ export default function Contacts({ onBroadcastToSelection }) {
   const fileInputRef = useRef(null);
 
   async function refresh() {
-    const [g, c] = await Promise.all([api.getGroups(), api.getDirectory(activeGroupId)]);
+    const { groupId, failedOnly } = parseView(view);
+    const [g, c, failed] = await Promise.all([
+      api.getGroups(),
+      api.getDirectory(groupId, failedOnly),
+      api.getDirectory(null, true),
+    ]);
     setGroups(g);
     setContacts(c);
+    setFailedCount(failed.length);
     setSelectedIds(new Set());
   }
 
-  useEffect(() => { refresh(); }, [activeGroupId]);
+  useEffect(() => { refresh(); }, [view]);
 
   function openAddForm() {
     setEditingWaId(null);
@@ -121,8 +134,8 @@ export default function Contacts({ onBroadcastToSelection }) {
   async function handleDeleteGroup(id) {
     if (!confirm("Delete this group? Contacts in it are kept, just ungrouped.")) return;
     await api.deleteGroup(id);
-    if (activeGroupId === id) setActiveGroupId(null);
-    refresh();
+    if (view === `group:${id}`) setView("all");
+    else refresh();
   }
 
   async function handleDeleteContact(waId) {
@@ -175,14 +188,17 @@ export default function Contacts({ onBroadcastToSelection }) {
     setSelectedIds((prev) => (prev.size === contacts.length ? new Set() : new Set(contacts.map((c) => c.wa_id))));
   }
 
-  const activeGroupName = useMemo(() => groups.find((g) => g.id === activeGroupId)?.name, [groups, activeGroupId]);
+  const activeGroupName = useMemo(() => {
+    if (!view.startsWith("group:")) return null;
+    return groups.find((g) => g.id === Number(view.split(":")[1]))?.name;
+  }, [groups, view]);
+
+  const viewTitle = view === "all" ? "All contacts" : view === "failed" ? "Failed sends" : activeGroupName || "Group";
   const selectedContacts = useMemo(() => contacts.filter((c) => selectedIds.has(c.wa_id)), [contacts, selectedIds]);
 
   function handleBroadcastClick() {
     const list = selectedContacts.length > 0 ? selectedContacts : contacts;
-    const label = selectedContacts.length > 0
-      ? `${selectedContacts.length} selected contact(s)`
-      : activeGroupName || "All contacts";
+    const label = selectedContacts.length > 0 ? `${selectedContacts.length} selected contact(s)` : viewTitle;
     onBroadcastToSelection(list, label);
   }
 
@@ -194,26 +210,32 @@ export default function Contacts({ onBroadcastToSelection }) {
       <div className="contacts-layout">
         <div className="card contacts-sidebar">
           <h3>Groups</h3>
-          <button className={`group-chip ${activeGroupId === null ? "active" : ""}`} onClick={() => setActiveGroupId(null)}>
+          <button className={`group-chip ${view === "all" ? "active" : ""}`} onClick={() => setView("all")}>
             All contacts
           </button>
           {groups.map((g) => (
             <div key={g.id} className="group-chip-row">
-              <button className={`group-chip ${activeGroupId === g.id ? "active" : ""}`} onClick={() => setActiveGroupId(g.id)}>
+              <button className={`group-chip ${view === `group:${g.id}` ? "active" : ""}`} onClick={() => setView(`group:${g.id}`)}>
                 {g.name} <span className="group-count">{g.contact_count}</span>
               </button>
               <button className="group-delete" aria-label={`Delete group ${g.name}`} onClick={() => handleDeleteGroup(g.id)}>✕</button>
             </div>
           ))}
-          <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+          <div style={{ display: "flex", gap: 6, marginTop: 10, marginBottom: 14 }}>
             <input placeholder="New group name" value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} style={{ flex: 1, border: "1px solid var(--line)", borderRadius: 6, padding: "6px 8px", fontSize: 12.5 }} />
             <button className="btn-danger" style={{ borderColor: "var(--line)", color: "var(--text-soft)" }} onClick={handleCreateGroup}>+</button>
           </div>
+
+          {failedCount > 0 && (
+            <button className={`group-chip failed-chip ${view === "failed" ? "active" : ""}`} onClick={() => setView("failed")}>
+              ⚠ Failed sends <span className="group-count">{failedCount}</span>
+            </button>
+          )}
         </div>
 
         <div className="card">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
-            <h3 style={{ margin: 0 }}>{activeGroupName || "All contacts"} ({contacts.length})</h3>
+            <h3 style={{ margin: 0 }}>{viewTitle} ({contacts.length})</h3>
             <div style={{ display: "flex", gap: 8 }}>
               <button className="btn-danger" style={{ borderColor: "var(--line)", color: "var(--text-soft)" }} disabled={busy} onClick={() => fileInputRef.current?.click()}>
                 {busy ? "Importing..." : "Import CSV"}
@@ -222,6 +244,13 @@ export default function Contacts({ onBroadcastToSelection }) {
               <button className="btn-primary" onClick={openAddForm}>+ Add contact</button>
             </div>
           </div>
+
+          {view === "failed" && contacts.length > 0 && (
+            <div className="banner error" style={{ fontSize: 12.5 }}>
+              These contacts didn't receive their most recent broadcast. Select the ones you want to retry and
+              click Broadcast below — this clears their failed flag the moment a send to them succeeds.
+            </div>
+          )}
 
           {contacts.length > 0 && (
             <div className="selection-bar">
@@ -256,7 +285,7 @@ export default function Contacts({ onBroadcastToSelection }) {
 
           <table>
             <thead>
-              <tr><th></th><th>Name</th><th>Phone</th><th>Company</th><th>City</th><th>State</th><th>Email</th><th>Group</th><th></th></tr>
+              <tr><th></th><th>Name</th><th>Phone</th><th>Company</th><th>City</th><th>State</th><th>Email</th><th>Group</th><th>Status</th><th></th></tr>
             </thead>
             <tbody>
               {contacts.map((c) => (
@@ -269,6 +298,15 @@ export default function Contacts({ onBroadcastToSelection }) {
                   <td>{c.state || "—"}</td>
                   <td>{c.email || "—"}</td>
                   <td>{c.group_name || "—"}</td>
+                  <td>
+                    {c.last_broadcast_status === "failed" ? (
+                      <span className="status-badge failed" title={c.last_broadcast_error}>
+                        Failed · {c.last_broadcast_template}
+                      </span>
+                    ) : c.last_broadcast_status === "sent" ? (
+                      <span className="status-badge sent">Sent</span>
+                    ) : "—"}
+                  </td>
                   <td style={{ display: "flex", gap: 6 }}>
                     <button className="btn-danger" style={{ borderColor: "var(--line)", color: "var(--text-soft)" }} onClick={() => openEditForm(c)}>Edit</button>
                     <button className="btn-danger" onClick={() => handleDeleteContact(c.wa_id)}>Delete</button>
@@ -276,8 +314,8 @@ export default function Contacts({ onBroadcastToSelection }) {
                 </tr>
               ))}
               {contacts.length === 0 && (
-                <tr><td colSpan={9} style={{ color: "var(--text-soft)" }}>
-                  No contacts yet. They're added automatically after any broadcast, or add/import them here.
+                <tr><td colSpan={10} style={{ color: "var(--text-soft)" }}>
+                  {view === "failed" ? "No failed sends right now." : "No contacts yet. They're added automatically after any broadcast, or add/import them here."}
                 </td></tr>
               )}
             </tbody>

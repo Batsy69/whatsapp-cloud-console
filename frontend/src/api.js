@@ -72,13 +72,15 @@ export const api = {
   getBroadcastJobs: () => request("/broadcast/jobs"),
   getBroadcastJob: (id) => request(`/broadcast/jobs/${id}`),
   cancelBroadcastJob: (id) => request(`/broadcast/jobs/${id}`, { method: "DELETE" }),
+  retryBroadcastJob: (id) => request(`/broadcast/jobs/${id}/retry`, { method: "POST" }),
   exportBroadcastJobUrl: (id) => `/api/broadcast/jobs/${id}/export`,
 
   getGroups: () => request("/groups"),
   createGroup: (name) => request("/groups", { method: "POST", body: JSON.stringify({ name }) }),
   deleteGroup: (id) => request(`/groups/${id}`, { method: "DELETE" }),
 
-  getDirectory: (groupId) => request(`/directory${groupId ? `?group_id=${groupId}` : ""}`),
+  getDirectory: (groupId, failedOnly = false) =>
+    request(`/directory${groupId ? `?group_id=${groupId}` : failedOnly ? "?failed=1" : ""}`),
   upsertDirectoryContact: (payload) => request("/directory", { method: "POST", body: JSON.stringify(payload) }),
   importDirectory: (rows) => request("/directory/import", { method: "POST", body: JSON.stringify({ rows }) }),
   deleteDirectoryContact: (waId) => request(`/directory/${waId}`, { method: "DELETE" }),

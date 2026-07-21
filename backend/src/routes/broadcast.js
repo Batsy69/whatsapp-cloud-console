@@ -4,6 +4,7 @@ import {
   insertMessage,
   touchOutbound,
   upsertContact,
+  recordBroadcastResult,
   createBroadcastJob,
   insertBroadcastRecipients,
   getPendingRecipients,
@@ -15,6 +16,7 @@ import {
   listBroadcastJobs,
   getBroadcastJob,
   getFailedRecipients,
+  getFailedRecipientsFull,
   getAllRecipients,
   getUnfinishedJobs,
   getDueScheduledJobs,
@@ -62,8 +64,10 @@ async function processJob(jobId, templateName, languageCode, sharedComponents, d
 
         // Auto-saves the recipient into the contact directory - this is
         // what makes numbers show up in the Contacts tab automatically
-        // after any broadcast, without a separate import step.
+        // after any broadcast, without a separate import step. Also clears
+        // any previous failure flag on this contact, since this send worked.
         upsertContact(r.wa_id, null);
+        recordBroadcastResult(r.wa_id, { status: "sent", error: null, template: templateName });
         insertMessage({
           wa_id: r.wa_id,
           wamid,
@@ -79,6 +83,10 @@ async function processJob(jobId, templateName, languageCode, sharedComponents, d
       } catch (err) {
         updateRecipientResult(r.id, { status: "failed", error: err.message });
         bumpJobCounts(jobId, { failedDelta: 1 });
+        // Surfaces the failure on the contact itself (visible in the
+        // Contacts tab's "Failed sends" filter), even for a number that
+        // was never seen before this broadcast.
+        recordBroadcastResult(r.wa_id, { status: "failed", error: err.message, template: templateName });
       }
       await sleep(delayMs);
     }
@@ -165,6 +173,33 @@ router.get("/jobs/:id/export", (req, res) => {
   res.set("Content-Type", "text/csv");
   res.set("Content-Disposition", `attachment; filename="broadcast-${req.params.id}.csv"`);
   res.send(csv);
+});
+
+router.post("/jobs/:id/retry", (req, res) => {
+  const job = getBroadcastJob(req.params.id);
+  if (!job) return res.sendStatus(404);
+
+  const failed = getFailedRecipientsFull(req.params.id);
+  if (failed.length === 0) {
+    return res.status(400).json({ error: "This job has no failed recipients to retry" });
+  }
+
+  const shared = JSON.parse(job.shared_components || "[]");
+  const rows = failed.map((r) => ({ wa_id: r.wa_id, variables: r.variables ? JSON.parse(r.variables) : undefined }));
+
+  const { id: newJobId } = createBroadcastJob({
+    template_name: job.template_name,
+    language_code: job.language_code,
+    shared_components: shared,
+    total: rows.length,
+  });
+  insertBroadcastRecipients(newJobId, rows);
+
+  processJob(newJobId, job.template_name, job.language_code, shared, 200).catch((err) =>
+    console.error(`Retry broadcast job ${newJobId} crashed:`, err)
+  );
+
+  res.json({ job_id: newJobId, total: rows.length, status: "running" });
 });
 
 function launchDueJobs() {
