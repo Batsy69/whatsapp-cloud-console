@@ -297,6 +297,12 @@ td { padding: 9px 8px; border-bottom: 1px solid var(--line); vertical-align: top
   padding: 3px 10px; font-size: 11.5px;
 }
 
+.csv-mapping-note {
+  background: var(--paper); border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 12px; margin-top: 8px; font-size: 11.5px; color: var(--text-soft);
+  font-family: var(--mono);
+}
+
 @media (max-width: 760px) {
   .contacts-layout { grid-template-columns: 1fr; }
   .add-contact-form { grid-template-columns: 1fr 1fr; }

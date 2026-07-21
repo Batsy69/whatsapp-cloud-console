@@ -63,15 +63,18 @@ function parseCsvLine(line) {
 
 function parseCsvFile(text) {
   const rows = text.split(/\r?\n/).filter((l) => l.trim().length > 0).map(parseCsvLine);
-  if (rows.length === 0) return [];
-  const dataRows = /[a-zA-Z]/.test(rows[0][0] || "") ? rows.slice(1) : rows;
-  return dataRows
+  if (rows.length === 0) return { rows: [], headerLabels: null };
+  const hasHeader = /[a-zA-Z]/.test(rows[0][0] || "");
+  const headerLabels = hasHeader ? rows[0] : null;
+  const dataRows = hasHeader ? rows.slice(1) : rows;
+  const parsed = dataRows
     .map((row) => {
       const [wa_id, ...vars] = row;
       const hasVars = vars.length > 0 && vars.some((v) => v !== "");
       return { wa_id, variables: hasVars ? vars : undefined };
     })
     .filter((r) => r.wa_id);
+  return { rows: parsed, headerLabels };
 }
 
 function resolveField(contact, key) {
@@ -188,6 +191,7 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
   const [recipientsText, setRecipientsText] = useState("");
   const [csvRows, setCsvRows] = useState([]);
   const [csvFileName, setCsvFileName] = useState("");
+  const [csvHeaderLabels, setCsvHeaderLabels] = useState(null); // original column names, for showing the actual column->variable mapping
   const [contactSelection, setContactSelection] = useState([]); // full contact records from the Contacts tab
   const [selectionLabel, setSelectionLabel] = useState("");
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
@@ -270,7 +274,9 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
-      setCsvRows(parseCsvFile(String(reader.result)));
+      const { rows, headerLabels } = parseCsvFile(String(reader.result));
+      setCsvRows(rows);
+      setCsvHeaderLabels(headerLabels);
       setCsvFileName(file.name);
       setRecipientsText("");
       setContactSelection([]);
@@ -282,6 +288,7 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
   function clearRecipientSource() {
     setCsvRows([]);
     setCsvFileName("");
+    setCsvHeaderLabels(null);
     setContactSelection([]);
     setSelectionLabel("");
   }
@@ -792,7 +799,7 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
               <>
                 <textarea
                   value={recipientsText}
-                  onChange={(e) => { setRecipientsText(e.target.value); setCsvRows([]); setCsvFileName(""); }}
+                  onChange={(e) => { setRecipientsText(e.target.value); setCsvRows([]); setCsvFileName(""); setCsvHeaderLabels(null); }}
                   placeholder={"One number per line, E.164 without \"+\" (e.g. 919876543210)\n919812345678"}
                   disabled={csvRows.length > 0}
                   style={{ minHeight: 100 }}
@@ -808,11 +815,29 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
                     </span>
                   )}
                 </div>
+                {csvFileName && csvHeaderLabels && analysis?.bodyVarCount > 0 && (
+                  <div className="csv-mapping-note">
+                    <div style={{ fontWeight: 600, marginBottom: 3 }}>
+                      Column order detected — your header text is just a label, position is what's actually used:
+                    </div>
+                    {Array.from({ length: analysis.bodyVarCount }, (_, i) => {
+                      const colLabel = csvHeaderLabels[i + 1];
+                      const varLabel = analysis.isNamed ? analysis.bodyNamedVars[i] : String(i + 1);
+                      return (
+                        <div key={i}>
+                          Column {i + 2}{colLabel ? ` ("${colLabel}")` : " — missing in your file, will be blank"} → {`{{${varLabel}}}`}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
                 <span style={{ fontSize: 11.5, color: "var(--text-soft)", marginTop: 4, display: "block" }}>
                   CSV format: <code>phone</code> alone for a plain broadcast, or <code>phone,value1,value2,...</code>
-                  to fill this template's body variables differently per recipient. Or go to the Contacts tab,
-                  select contacts there, and click Broadcast — you'll be able to pull their saved name, company,
-                  etc. straight into the message.
+                  where columns fill this template's variables strictly by <strong>order</strong>, left to right —
+                  your column headers can say anything, they're not matched by name. You'll also see the exact
+                  mapping above once you upload, and can double-check every value in the review step before
+                  sending. Or go to the Contacts tab, select contacts there, and click Broadcast — you'll be
+                  able to pull their saved name, company, etc. straight into the message instead.
                 </span>
               </>
             )}
