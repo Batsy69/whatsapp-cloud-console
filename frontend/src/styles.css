@@ -325,7 +325,7 @@ td { padding: 9px 8px; border-bottom: 1px solid var(--line); vertical-align: top
 .cell-input:hover, .cell-input:focus { border-color: var(--line); background: var(--paper); }
 .cell-input.cell-blank { border-color: var(--danger); background: var(--danger-soft); }
 
-.var-col-header { min-width: 160px; }
+.var-col-header { min-width: 190px; }
 .var-col-header select {
   width: 100%; font-size: 11.5px; border: 1px solid var(--line); border-radius: 5px;
   padding: 3px 5px; margin-bottom: 4px; font-weight: 400; text-transform: none;

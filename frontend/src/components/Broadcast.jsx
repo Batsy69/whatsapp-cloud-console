@@ -586,22 +586,25 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
                     <div style={{ fontFamily: "var(--mono)", marginBottom: 4 }}>
                       {analysis?.isNamed ? `{{${analysis.bodyNamedVars[i]}}}` : `{{${i + 1}}}`}
                     </div>
-                    <select
-                      value={columnMode[i] || "fixed"}
-                      onChange={(e) => handleColumnModeChange(i, e.target.value)}
-                    >
-                      {(hasContactSource ? columnFieldOptions : ["fixed"]).map((opt) => (
-                        <option key={opt} value={opt}>{columnFieldLabel(opt)}</option>
-                      ))}
-                    </select>
-                    {(columnMode[i] || "fixed") === "fixed" && (
+                    {hasContactSource && (
+                      <select
+                        value={columnMode[i] || "fixed"}
+                        onChange={(e) => handleColumnModeChange(i, e.target.value)}
+                      >
+                        {columnFieldOptions.map((opt) => (
+                          <option key={opt} value={opt}>{columnFieldLabel(opt)}</option>
+                        ))}
+                      </select>
+                    )}
+                    {(!hasContactSource || (columnMode[i] || "fixed") === "fixed") && (
                       <div className="col-fixed-apply">
                         <input
-                          placeholder="value for everyone"
+                          placeholder="Type, press Enter to fill every row"
                           value={fixedValueInputs[i] || ""}
                           onChange={(e) => { const next = [...fixedValueInputs]; next[i] = e.target.value; setFixedValueInputs(next); }}
+                          onKeyDown={(e) => e.key === "Enter" && applyFixedValue(i)}
                         />
-                        <button onClick={() => applyFixedValue(i)}>Apply to all</button>
+                        <button onClick={() => applyFixedValue(i)}>Fill all</button>
                       </div>
                     )}
                   </th>
