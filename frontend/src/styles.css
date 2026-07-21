@@ -349,6 +349,12 @@ td { padding: 9px 8px; border-bottom: 1px solid var(--line); vertical-align: top
 .status-badge-btn { border: none; cursor: pointer; font-family: inherit; }
 .status-badge-btn:hover { filter: brightness(0.95); }
 
+.section-header-row td {
+  background: var(--paper); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--text-soft); font-weight: 600;
+  padding: 8px 8px; border-bottom: 1px solid var(--line);
+}
+
 .history-row-expanded td { background: var(--paper); padding: 12px 20px; }
 .history-detail-table { width: 100%; font-size: 12px; }
 .history-detail-table th { padding: 4px 8px; }

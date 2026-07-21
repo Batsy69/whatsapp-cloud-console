@@ -333,69 +333,106 @@ export default function Contacts({ onBroadcastToSelection }) {
               <tr><th></th><th>Name</th><th>Phone</th><th>Company</th><th>City</th><th>State</th><th>Email</th><th>Group</th><th>Status</th><th></th></tr>
             </thead>
             <tbody>
-              {contacts.map((c) => (
-                <Fragment key={c.wa_id}>
-                  <tr>
-                    <td><input type="checkbox" checked={selectedIds.has(c.wa_id)} onChange={() => toggleSelected(c.wa_id)} /></td>
-                    <td>{c.name}</td>
-                    <td style={{ fontFamily: "var(--mono)" }}>{c.wa_id}</td>
-                    <td>{c.company || "—"}</td>
-                    <td>{c.city || "—"}</td>
-                    <td>{c.state || "—"}</td>
-                    <td>{c.email || "—"}</td>
-                    <td>{c.group_name || "—"}</td>
-                    <td>
-                      {c.last_broadcast_status ? (
-                        <button
-                          className={`status-badge ${c.last_broadcast_status} status-badge-btn`}
-                          title={c.last_broadcast_error || "Click to view full broadcast history"}
-                          onClick={() => toggleHistory(c.wa_id)}
-                        >
-                          {c.last_broadcast_status === "failed"
-                            ? `Failed · ${c.last_broadcast_template}`
-                            : c.last_broadcast_status === "queued"
-                            ? "Queued — awaiting confirmation"
-                            : c.last_broadcast_status === "confirmed"
-                            ? "Confirmed delivered"
-                            : "Confirmed sent"}
-                          {" "}{expandedWaId === c.wa_id ? "▴" : "▾"}
-                        </button>
-                      ) : "—"}
-                    </td>
-                    <td style={{ display: "flex", gap: 6 }}>
-                      <button className="btn-danger" style={{ borderColor: "var(--line)", color: "var(--text-soft)" }} onClick={() => openEditForm(c)}>Edit</button>
-                      <button className="btn-danger" onClick={() => handleDeleteContact(c.wa_id)}>Delete</button>
-                    </td>
-                  </tr>
-                  {expandedWaId === c.wa_id && (
-                    <tr className="history-row-expanded">
-                      <td colSpan={10}>
-                        {!historyCache[c.wa_id] ? (
-                          <span style={{ fontSize: 12, color: "var(--text-soft)" }}>Loading history...</span>
-                        ) : historyCache[c.wa_id].length === 0 ? (
-                          <span style={{ fontSize: 12, color: "var(--text-soft)" }}>No broadcast history yet.</span>
-                        ) : (
-                          <table className="history-detail-table">
-                            <thead>
-                              <tr><th>Template</th><th>When</th><th>Result</th><th>Error</th></tr>
-                            </thead>
-                            <tbody>
-                              {historyCache[c.wa_id].map((h, i) => (
-                                <tr key={i}>
-                                  <td>{h.template_name}</td>
-                                  <td style={{ fontFamily: "var(--mono)" }}>{h.updated_at ? new Date(h.updated_at).toLocaleString() : "pending"}</td>
-                                  <td><span className={`status-badge ${h.status}`}>{h.status}</span></td>
-                                  <td style={{ color: "var(--danger)" }}>{h.error || ""}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        )}
-                      </td>
+              {(() => {
+                function renderRow(c) {
+                  return (
+                    <Fragment key={c.wa_id}>
+                      <tr>
+                        <td><input type="checkbox" checked={selectedIds.has(c.wa_id)} onChange={() => toggleSelected(c.wa_id)} /></td>
+                        <td>{c.name}</td>
+                        <td style={{ fontFamily: "var(--mono)" }}>{c.wa_id}</td>
+                        <td>{c.company || "—"}</td>
+                        <td>{c.city || "—"}</td>
+                        <td>{c.state || "—"}</td>
+                        <td>{c.email || "—"}</td>
+                        <td>{c.group_name || "—"}</td>
+                        <td>
+                          {c.last_broadcast_status ? (
+                            <button
+                              className={`status-badge ${c.last_broadcast_status} status-badge-btn`}
+                              title={c.last_broadcast_error || "Click to view full broadcast history"}
+                              onClick={() => toggleHistory(c.wa_id)}
+                            >
+                              {c.last_broadcast_status === "failed"
+                                ? `Failed · ${c.last_broadcast_template}`
+                                : c.last_broadcast_status === "queued"
+                                ? "Queued — awaiting confirmation"
+                                : c.last_broadcast_status === "confirmed"
+                                ? "Confirmed delivered"
+                                : "Confirmed sent"}
+                              {" "}{expandedWaId === c.wa_id ? "▴" : "▾"}
+                            </button>
+                          ) : "—"}
+                        </td>
+                        <td style={{ display: "flex", gap: 6 }}>
+                          <button className="btn-danger" style={{ borderColor: "var(--line)", color: "var(--text-soft)" }} onClick={() => openEditForm(c)}>Edit</button>
+                          <button className="btn-danger" onClick={() => handleDeleteContact(c.wa_id)}>Delete</button>
+                        </td>
+                      </tr>
+                      {expandedWaId === c.wa_id && (
+                        <tr className="history-row-expanded">
+                          <td colSpan={10}>
+                            {!historyCache[c.wa_id] ? (
+                              <span style={{ fontSize: 12, color: "var(--text-soft)" }}>Loading history...</span>
+                            ) : historyCache[c.wa_id].length === 0 ? (
+                              <span style={{ fontSize: 12, color: "var(--text-soft)" }}>No broadcast history yet.</span>
+                            ) : (
+                              <table className="history-detail-table">
+                                <thead>
+                                  <tr><th>Template</th><th>When</th><th>Result</th><th>Error</th></tr>
+                                </thead>
+                                <tbody>
+                                  {historyCache[c.wa_id].map((h, i) => (
+                                    <tr key={i}>
+                                      <td>{h.template_name}</td>
+                                      <td style={{ fontFamily: "var(--mono)" }}>{h.updated_at ? new Date(h.updated_at).toLocaleString() : "pending"}</td>
+                                      <td><span className={`status-badge ${h.status}`}>{h.status}</span></td>
+                                      <td style={{ color: "var(--danger)" }}>{h.error || ""}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                }
+
+                if (view !== "all") {
+                  return contacts.map(renderRow);
+                }
+
+                // "All contacts" specifically separates grouped from
+                // ungrouped, rather than one flat mixed list - grouped
+                // contacts sorted by their group name so same-group
+                // contacts sit together.
+                const ungrouped = contacts.filter((c) => !c.group_id);
+                const grouped = [...contacts.filter((c) => c.group_id)].sort((a, b) =>
+                  (a.group_name || "").localeCompare(b.group_name || "")
+                );
+                return (
+                  <>
+                    <tr className="section-header-row">
+                      <td colSpan={10}>Ungrouped ({ungrouped.length})</td>
                     </tr>
-                  )}
-                </Fragment>
-              ))}
+                    {ungrouped.length === 0 ? (
+                      <tr><td colSpan={10} style={{ color: "var(--text-soft)" }}>No ungrouped contacts.</td></tr>
+                    ) : (
+                      ungrouped.map(renderRow)
+                    )}
+                    <tr className="section-header-row">
+                      <td colSpan={10}>Grouped ({grouped.length})</td>
+                    </tr>
+                    {grouped.length === 0 ? (
+                      <tr><td colSpan={10} style={{ color: "var(--text-soft)" }}>No grouped contacts yet.</td></tr>
+                    ) : (
+                      grouped.map(renderRow)
+                    )}
+                  </>
+                );
+              })()}
               {contacts.length === 0 && (
                 <tr><td colSpan={10} style={{ color: "var(--text-soft)" }}>
                   {view === "failed" ? "No failed sends right now." : "No contacts yet. They're added automatically after any broadcast, or add/import them here."}
