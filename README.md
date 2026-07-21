@@ -184,6 +184,10 @@ glance; click it for the full per-attempt history.
   history, whatever you throw at it)
 - Group contacts into categories (e.g. "Dealers - Maharashtra"). One click
   sends a broadcast to everyone in a group — no manual number-pasting needed
+- **Bulk group management**: select any contacts from any view (All contacts,
+  a specific group, or Failed sends) and add them to a group or remove them
+  from their current one in one action — not limited to setting a group only
+  when adding a contact one at a time or importing a fresh CSV
 - When broadcasting to a group, you can map each template variable (`{{1}}`,
   `{{2}}`, ...) to a stored contact field (name, company, city, ...), so one
   broadcast personalizes per recipient using data already in the directory,
@@ -243,6 +247,11 @@ glance; click it for the full per-attempt history.
 
 **Broadcast**
 - Only lists `APPROVED` templates (Meta rejects sends against pending ones)
+- Set a **default value** for each body variable before picking recipients —
+  it fills in any recipient who'd otherwise be missing that value (no CSV
+  column, no matching contact field, or a plain pasted number with no data
+  at all), while still being fully overridable per row or per column once
+  you're reviewing recipients
 - Renders header/body/footer/button variable inputs based on what the
   selected template actually needs, including the dynamic URL button case
 - **Bulk send**: paste numbers directly, upload a CSV, or pick a saved group

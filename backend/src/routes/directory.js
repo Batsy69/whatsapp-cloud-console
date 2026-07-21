@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { listDirectory, upsertDirectoryContact, deleteConversation, getContactBroadcastHistory } from "../db.js";
+import { listDirectory, upsertDirectoryContact, deleteConversation, getContactBroadcastHistory, bulkSetGroup } from "../db.js";
 import { normalizePhone } from "../phone.js";
 
 const router = Router();
@@ -45,6 +45,18 @@ router.post("/import", (req, res) => {
     imported++;
   }
   res.json({ imported, skipped: rows.length - imported });
+});
+
+// Bulk assign or clear group membership for a set of contacts, from any
+// view (not just contacts already filtered to one group). group_id of null
+// (or omitted) removes them from whatever group they're currently in.
+router.post("/bulk-group", (req, res) => {
+  const { wa_ids, group_id } = req.body;
+  if (!Array.isArray(wa_ids) || wa_ids.length === 0) {
+    return res.status(400).json({ error: "wa_ids array is required" });
+  }
+  bulkSetGroup(wa_ids, group_id || null);
+  res.json({ ok: true, updated: wa_ids.length });
 });
 
 router.delete("/:waId", (req, res) => {

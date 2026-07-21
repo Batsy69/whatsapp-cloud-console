@@ -180,6 +180,7 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
   const [templates, setTemplates] = useState([]);
   const [templateName, setTemplateName] = useState("");
   const [headerVars, setHeaderVars] = useState([]);
+  const [bodyVars, setBodyVars] = useState([]); // default values, applied to any blank cell when preview is built
   const [headerMediaId, setHeaderMediaId] = useState("");
   const [headerMediaName, setHeaderMediaName] = useState("");
   const [headerUploading, setHeaderUploading] = useState(false);
@@ -239,6 +240,7 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
     const t = templates.find((x) => x.name === name);
     const a = t ? analyzeTemplate(t) : null;
     setHeaderVars(new Array(a?.headerVarCount || 0).fill(""));
+    setBodyVars(new Array(a?.bodyVarCount || 0).fill(""));
     setHeaderMediaId("");
     setHeaderMediaName("");
     setButtonVar("");
@@ -300,11 +302,13 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
     if (contactSelection.length > 0) {
       // Auto-guess a sensible field for each {{n}} the first time (name, then
       // company, then city...), fully overridable per-column in the table.
+      // Falls back to the typed default when a contact simply doesn't have
+      // that field set, rather than leaving the cell blank.
       rows = contactSelection.map((c) => ({
         wa_id: c.wa_id,
         label: c.name || c.wa_id,
         _contact: c,
-        variables: Array.from({ length: bodyVarCount }, (_, i) => resolveField(c, FIELD_PRIORITY[i]) || ""),
+        variables: Array.from({ length: bodyVarCount }, (_, i) => resolveField(c, FIELD_PRIORITY[i]) || bodyVars[i] || ""),
       }));
       setColumnMode(Array.from({ length: bodyVarCount }, (_, i) => (resolveField(contactSelection[0], FIELD_PRIORITY[i]) ? FIELD_PRIORITY[i] : "fixed")));
     } else if (csvRows.length > 0) {
@@ -312,7 +316,7 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
         wa_id: r.wa_id,
         label: r.wa_id,
         _contact: null,
-        variables: Array.from({ length: bodyVarCount }, (_, i) => r.variables?.[i] ?? ""),
+        variables: Array.from({ length: bodyVarCount }, (_, i) => r.variables?.[i] || bodyVars[i] || ""),
       }));
       setColumnMode(new Array(bodyVarCount).fill("fixed"));
     } else {
@@ -320,7 +324,7 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
         wa_id: r.wa_id,
         label: r.wa_id,
         _contact: null,
-        variables: new Array(bodyVarCount).fill(""),
+        variables: Array.from({ length: bodyVarCount }, (_, i) => bodyVars[i] || ""),
       }));
       setColumnMode(new Array(bodyVarCount).fill("fixed"));
     }
@@ -703,8 +707,9 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
                 )}
                 {analysis?.bodyVarCount > 0 && (
                   <div style={{ marginTop: 8, fontSize: 11.5, color: "var(--text-soft)" }}>
-                    This template has {analysis.bodyVarCount} variable(s) in the body — you'll set where each
-                    one's value comes from in the next step, after picking recipients.
+                    This template has {analysis.bodyVarCount} variable(s) in the body — set a default below to
+                    cover anyone missing a value, then fine-tune per recipient (or map to a contact field) in
+                    the review step after picking recipients.
                   </div>
                 )}
               </div>
@@ -718,6 +723,21 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
                 <input key={i} placeholder={`Header {{${analysis?.isNamed ? analysis.headerNamedVars[i] : i + 1}}}`} value={v}
                   onChange={(e) => { const next = [...headerVars]; next[i] = e.target.value; setHeaderVars(next); }}
                   style={{ marginBottom: 6 }} />
+              ))}
+            </div>
+          )}
+
+          {analysis?.bodyVarCount > 0 && (
+            <div className="field">
+              <label>Default values — fills in any recipient missing this value (no CSV column, no matching contact field, or plain pasted numbers). Still fully editable per row when you review.</label>
+              {bodyVars.map((v, i) => (
+                <input
+                  key={i}
+                  placeholder={analysis?.isNamed ? `{{${analysis.bodyNamedVars[i]}}}` : `{{${i + 1}}}`}
+                  value={v}
+                  onChange={(e) => { const next = [...bodyVars]; next[i] = e.target.value; setBodyVars(next); }}
+                  style={{ marginBottom: 6 }}
+                />
               ))}
             </div>
           )}

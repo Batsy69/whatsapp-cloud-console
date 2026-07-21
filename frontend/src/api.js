@@ -84,5 +84,6 @@ export const api = {
   upsertDirectoryContact: (payload) => request("/directory", { method: "POST", body: JSON.stringify(payload) }),
   importDirectory: (rows) => request("/directory/import", { method: "POST", body: JSON.stringify({ rows }) }),
   deleteDirectoryContact: (waId) => request(`/directory/${waId}`, { method: "DELETE" }),
+  bulkSetGroup: (waIds, groupId) => request("/directory/bulk-group", { method: "POST", body: JSON.stringify({ wa_ids: waIds, group_id: groupId }) }),
   getContactHistory: (waId) => request(`/directory/${waId}/history`),
 };

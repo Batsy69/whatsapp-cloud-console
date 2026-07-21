@@ -349,6 +349,17 @@ export function deleteGroup(id) {
   tx(id);
 }
 
+// Bulk group assignment/removal for a selection of contacts, from anywhere
+// in the directory (not just contacts already filtered to one group).
+// groupId of null clears their group membership.
+export function bulkSetGroup(waIds, groupId) {
+  const tx = db.transaction((ids) => {
+    const stmt = db.prepare("UPDATE contacts SET group_id = ? WHERE wa_id = ?");
+    for (const id of ids) stmt.run(groupId, id);
+  });
+  tx(waIds);
+}
+
 // --- Broadcast jobs (bulk sends, processed async in the background) ---
 
 export function createBroadcastJob({ template_name, language_code, shared_components, total, scheduled_at }) {

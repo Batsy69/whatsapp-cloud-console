@@ -216,6 +216,20 @@ export default function Contacts({ onBroadcastToSelection }) {
     onBroadcastToSelection(list, label);
   }
 
+  async function handleBulkAddToGroup(groupId) {
+    if (!groupId || selectedIds.size === 0) return;
+    await api.bulkSetGroup([...selectedIds], Number(groupId));
+    setInfo(`Added ${selectedIds.size} contact(s) to the group.`);
+    refresh();
+  }
+
+  async function handleBulkRemoveFromGroup() {
+    if (selectedIds.size === 0) return;
+    await api.bulkSetGroup([...selectedIds], null);
+    setInfo(`Removed ${selectedIds.size} contact(s) from their group.`);
+    refresh();
+  }
+
   return (
     <div className="panel-view">
       {error && <div className="banner error">{error}</div>}
@@ -272,9 +286,26 @@ export default function Contacts({ onBroadcastToSelection }) {
                 <input type="checkbox" checked={selectedIds.size === contacts.length} onChange={toggleSelectAll} />
                 {selectedIds.size > 0 ? `${selectedIds.size} selected` : "Select all"}
               </label>
-              <button className="btn-primary" onClick={handleBroadcastClick}>
-                Broadcast to {selectedContacts.length > 0 ? selectedContacts.length : contacts.length} {selectedContacts.length > 0 ? "selected" : ""} contact(s)
-              </button>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                {selectedIds.size > 0 && (
+                  <>
+                    <select
+                      defaultValue=""
+                      onChange={(e) => { if (e.target.value) { handleBulkAddToGroup(e.target.value); e.target.value = ""; } }}
+                      style={{ border: "1px solid var(--line)", borderRadius: 6, padding: "6px 8px", fontSize: 12.5 }}
+                    >
+                      <option value="" disabled>Add to group...</option>
+                      {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                    </select>
+                    <button className="btn-danger" style={{ borderColor: "var(--line)", color: "var(--text-soft)" }} onClick={handleBulkRemoveFromGroup}>
+                      Remove from group
+                    </button>
+                  </>
+                )}
+                <button className="btn-primary" onClick={handleBroadcastClick}>
+                  Broadcast to {selectedContacts.length > 0 ? selectedContacts.length : contacts.length} {selectedContacts.length > 0 ? "selected" : ""} contact(s)
+                </button>
+              </div>
             </div>
           )}
 
