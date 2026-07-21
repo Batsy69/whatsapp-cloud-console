@@ -190,6 +190,12 @@ and register `https://<your-ngrok-domain>/webhook` in the Meta App Dashboard
 - **No native message history**: everything in the Inbox is what your own webhook
   has captured and stored in SQLite since this app went live — Meta doesn't backfill
   past conversations.
+- **Blank template variables**: if a broadcast recipient's mapped value is empty
+  (e.g. a contact has no Company on file and a variable is mapped to Company),
+  Meta rejects that specific send with `#131008 Required parameter is missing`
+  — an empty string isn't treated as a valid substitute for `{{n}}`. The preview
+  table highlights any blank cell in red, warns with a count, and blocks sending
+  until you either fill them in or exclude those rows with one click.
 - **Broadcast pacing**: sends are sequential with a small delay (see `delay_ms` in
   `backend/src/routes/broadcast.js`), running as a background job rather than
   holding an HTTP request open — this already handles thousands of recipients

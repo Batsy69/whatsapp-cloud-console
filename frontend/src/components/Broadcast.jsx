@@ -332,6 +332,11 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
   function setAllIncluded(val) {
     setPreviewRows((prev) => prev.map((r) => ({ ...r, included: val })));
   }
+  function excludeBlankRows() {
+    setPreviewRows((prev) =>
+      prev.map((r) => (r.variables.some((v) => !String(v ?? "").trim()) ? { ...r, included: false } : r))
+    );
+  }
   function updatePreviewVar(globalIndex, varIndex, value) {
     setPreviewRows((prev) =>
       prev.map((r, i) => (i === globalIndex ? { ...r, variables: r.variables.map((v, j) => (j === varIndex ? value : v)) } : r))
@@ -357,6 +362,7 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
   }
 
   const includedCount = previewRows.filter((r) => r.included).length;
+  const rowsWithBlanks = previewRows.filter((r) => r.included && r.variables.some((v) => !String(v ?? "").trim()));
   const totalPages = Math.max(1, Math.ceil(previewRows.length / PAGE_SIZE));
   const pageStart = previewPage * PAGE_SIZE;
   const pagedRows = previewRows.slice(pageStart, pageStart + PAGE_SIZE);
@@ -498,6 +504,17 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
           </div>
         </div>
 
+        {rowsWithBlanks.length > 0 && (
+          <div className="banner error" style={{ fontSize: 12.5 }}>
+            {rowsWithBlanks.length} selected recipient(s) have a blank value for at least one variable
+            (highlighted below in red) — Meta will likely reject these specific sends with "Required
+            parameter is missing." Fill in the blank cells, or{" "}
+            <button onClick={excludeBlankRows} style={{ background: "none", border: "none", color: "inherit", textDecoration: "underline", cursor: "pointer", padding: 0, font: "inherit" }}>
+              exclude these {rowsWithBlanks.length} row(s)
+            </button>.
+          </div>
+        )}
+
         {previewRows.length > PAGE_SIZE && (
           <div className="preview-pagination">
             <button disabled={previewPage === 0} onClick={() => setPreviewPage((p) => p - 1)}>‹ Prev</button>
@@ -555,7 +572,11 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
                     <td style={{ fontSize: 12, color: "var(--text-soft)" }}>{r.label}</td>
                     {r.variables.map((v, vi) => (
                       <td key={vi}>
-                        <input className="cell-input" value={v} onChange={(e) => updatePreviewVar(globalIdx, vi, e.target.value)} />
+                        <input
+                          className={`cell-input ${!String(v ?? "").trim() ? "cell-blank" : ""}`}
+                          value={v}
+                          onChange={(e) => updatePreviewVar(globalIdx, vi, e.target.value)}
+                        />
                       </td>
                     ))}
                   </tr>
@@ -565,8 +586,19 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
           </table>
         </div>
 
-        <button className="btn-primary" style={{ marginTop: 16 }} disabled={busy || includedCount === 0} onClick={handleConfirmSend}>
-          {busy ? "Starting..." : scheduleEnabled ? `Schedule for ${includedCount} recipient(s)` : `Send to ${includedCount} recipient(s)`}
+        <button
+          className="btn-primary"
+          style={{ marginTop: 16 }}
+          disabled={busy || includedCount === 0 || rowsWithBlanks.length > 0}
+          onClick={handleConfirmSend}
+        >
+          {busy
+            ? "Starting..."
+            : rowsWithBlanks.length > 0
+            ? "Fix or exclude blank values above to continue"
+            : scheduleEnabled
+            ? `Schedule for ${includedCount} recipient(s)`
+            : `Send to ${includedCount} recipient(s)`}
         </button>
       </div>
     );
@@ -742,7 +774,13 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
 
           <button
             className="btn-primary"
-            disabled={!selected || recipientCount === 0 || (scheduleEnabled && !scheduleAt) || (analysis?.isMediaHeader && !headerMediaId)}
+            disabled={
+              !selected ||
+              recipientCount === 0 ||
+              (scheduleEnabled && !scheduleAt) ||
+              (analysis?.isMediaHeader && !headerMediaId) ||
+              (analysis?.headerVarCount > 0 && headerVars.some((v) => !v.trim()))
+            }
             onClick={handleBuildPreview}
           >
             Review {recipientCount} recipient(s) before sending
