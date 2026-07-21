@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api.js";
 
 const FIELD_ALIASES = {
@@ -64,6 +64,8 @@ export default function Contacts({ onBroadcastToSelection }) {
   const [contacts, setContacts] = useState([]);
   const [failedCount, setFailedCount] = useState(0);
   const [selectedIds, setSelectedIds] = useState(new Set());
+  const [expandedWaId, setExpandedWaId] = useState(null);
+  const [historyCache, setHistoryCache] = useState({});
   const [showForm, setShowForm] = useState(false);
   const [editingWaId, setEditingWaId] = useState(null);
   const [form, setForm] = useState(emptyForm());
@@ -172,6 +174,18 @@ export default function Contacts({ onBroadcastToSelection }) {
     } finally {
       setBusy(false);
       e.target.value = "";
+    }
+  }
+
+  async function toggleHistory(waId) {
+    if (expandedWaId === waId) {
+      setExpandedWaId(null);
+      return;
+    }
+    setExpandedWaId(waId);
+    if (!historyCache[waId]) {
+      const rows = await api.getContactHistory(waId);
+      setHistoryCache((prev) => ({ ...prev, [waId]: rows }));
     }
   }
 
@@ -289,29 +303,61 @@ export default function Contacts({ onBroadcastToSelection }) {
             </thead>
             <tbody>
               {contacts.map((c) => (
-                <tr key={c.wa_id}>
-                  <td><input type="checkbox" checked={selectedIds.has(c.wa_id)} onChange={() => toggleSelected(c.wa_id)} /></td>
-                  <td>{c.name}</td>
-                  <td style={{ fontFamily: "var(--mono)" }}>{c.wa_id}</td>
-                  <td>{c.company || "—"}</td>
-                  <td>{c.city || "—"}</td>
-                  <td>{c.state || "—"}</td>
-                  <td>{c.email || "—"}</td>
-                  <td>{c.group_name || "—"}</td>
-                  <td>
-                    {c.last_broadcast_status === "failed" ? (
-                      <span className="status-badge failed" title={c.last_broadcast_error}>
-                        Failed · {c.last_broadcast_template}
-                      </span>
-                    ) : c.last_broadcast_status === "sent" ? (
-                      <span className="status-badge sent">Sent</span>
-                    ) : "—"}
-                  </td>
-                  <td style={{ display: "flex", gap: 6 }}>
-                    <button className="btn-danger" style={{ borderColor: "var(--line)", color: "var(--text-soft)" }} onClick={() => openEditForm(c)}>Edit</button>
-                    <button className="btn-danger" onClick={() => handleDeleteContact(c.wa_id)}>Delete</button>
-                  </td>
-                </tr>
+                <Fragment key={c.wa_id}>
+                  <tr>
+                    <td><input type="checkbox" checked={selectedIds.has(c.wa_id)} onChange={() => toggleSelected(c.wa_id)} /></td>
+                    <td>{c.name}</td>
+                    <td style={{ fontFamily: "var(--mono)" }}>{c.wa_id}</td>
+                    <td>{c.company || "—"}</td>
+                    <td>{c.city || "—"}</td>
+                    <td>{c.state || "—"}</td>
+                    <td>{c.email || "—"}</td>
+                    <td>{c.group_name || "—"}</td>
+                    <td>
+                      {c.last_broadcast_status ? (
+                        <button
+                          className={`status-badge ${c.last_broadcast_status} status-badge-btn`}
+                          title={c.last_broadcast_error || "Click to view full broadcast history"}
+                          onClick={() => toggleHistory(c.wa_id)}
+                        >
+                          {c.last_broadcast_status === "failed" ? `Failed · ${c.last_broadcast_template}` : "Sent"}
+                          {" "}{expandedWaId === c.wa_id ? "▴" : "▾"}
+                        </button>
+                      ) : "—"}
+                    </td>
+                    <td style={{ display: "flex", gap: 6 }}>
+                      <button className="btn-danger" style={{ borderColor: "var(--line)", color: "var(--text-soft)" }} onClick={() => openEditForm(c)}>Edit</button>
+                      <button className="btn-danger" onClick={() => handleDeleteContact(c.wa_id)}>Delete</button>
+                    </td>
+                  </tr>
+                  {expandedWaId === c.wa_id && (
+                    <tr className="history-row-expanded">
+                      <td colSpan={10}>
+                        {!historyCache[c.wa_id] ? (
+                          <span style={{ fontSize: 12, color: "var(--text-soft)" }}>Loading history...</span>
+                        ) : historyCache[c.wa_id].length === 0 ? (
+                          <span style={{ fontSize: 12, color: "var(--text-soft)" }}>No broadcast history yet.</span>
+                        ) : (
+                          <table className="history-detail-table">
+                            <thead>
+                              <tr><th>Template</th><th>When</th><th>Result</th><th>Error</th></tr>
+                            </thead>
+                            <tbody>
+                              {historyCache[c.wa_id].map((h, i) => (
+                                <tr key={i}>
+                                  <td>{h.template_name}</td>
+                                  <td style={{ fontFamily: "var(--mono)" }}>{h.updated_at ? new Date(h.updated_at).toLocaleString() : "pending"}</td>
+                                  <td><span className={`status-badge ${h.status}`}>{h.status}</span></td>
+                                  <td style={{ color: "var(--danger)" }}>{h.error || ""}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))}
               {contacts.length === 0 && (
                 <tr><td colSpan={10} style={{ color: "var(--text-soft)" }}>

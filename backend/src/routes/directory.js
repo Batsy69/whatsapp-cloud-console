@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { listDirectory, upsertDirectoryContact, deleteConversation } from "../db.js";
+import { listDirectory, upsertDirectoryContact, deleteConversation, getContactBroadcastHistory } from "../db.js";
 import { normalizePhone } from "../phone.js";
 
 const router = Router();
@@ -7,6 +7,10 @@ const router = Router();
 router.get("/", (req, res) => {
   const rows = listDirectory(req.query.group_id ? Number(req.query.group_id) : null, req.query.failed === "1");
   res.json(rows.map((r) => ({ ...r, custom_fields: r.custom_fields ? JSON.parse(r.custom_fields) : null })));
+});
+
+router.get("/:waId/history", (req, res) => {
+  res.json(getContactBroadcastHistory(req.params.waId));
 });
 
 // Manual add / edit - upsert a single contact.

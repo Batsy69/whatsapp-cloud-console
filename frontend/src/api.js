@@ -84,4 +84,5 @@ export const api = {
   upsertDirectoryContact: (payload) => request("/directory", { method: "POST", body: JSON.stringify(payload) }),
   importDirectory: (rows) => request("/directory/import", { method: "POST", body: JSON.stringify({ rows }) }),
   deleteDirectoryContact: (waId) => request(`/directory/${waId}`, { method: "DELETE" }),
+  getContactHistory: (waId) => request(`/directory/${waId}/history`),
 };

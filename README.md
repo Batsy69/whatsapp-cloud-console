@@ -93,10 +93,15 @@ and register `https://<your-ngrok-domain>/webhook` in the Meta App Dashboard
 - Every broadcast attempt (success or failure) is recorded directly on the
   contact, not just buried in that one job's history — so a failure stays
   visible wherever you're looking, not only while that specific job is open
+- The Contacts table's Status badge shows the **most recent** attempt only
+  (a quick glance, not a full record) — click it to expand that contact's
+  **complete broadcast history**, every campaign ever sent to them with its
+  own result and error, so an older failure doesn't get hidden just because
+  a later, different broadcast to the same person succeeded
 - A "⚠ Failed sends" filter appears in the Contacts sidebar whenever there
-  are any, showing exactly who didn't receive their last broadcast and why
-- The flag **self-clears** the moment a later send to that contact succeeds
-  — no manual cleanup needed
+  are any, showing exactly who didn't receive their *last* broadcast and why
+- The badge (and the filter) **self-clears** the moment a later send to that
+  contact succeeds — the underlying history never does, it's a permanent log
 - From a completed broadcast's progress panel, "Retry N failed" spins up a
   new job targeting only the numbers that failed, reusing the same template
   and their original per-recipient variables

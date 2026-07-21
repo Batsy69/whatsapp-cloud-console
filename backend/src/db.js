@@ -58,10 +58,12 @@ CREATE TABLE IF NOT EXISTS broadcast_recipients (
   variables TEXT,           -- JSON: per-recipient variable overrides (from CSV or directory fields)
   status TEXT NOT NULL DEFAULT 'pending',  -- 'pending' | 'sent' | 'failed'
   wamid TEXT,
-  error TEXT
+  error TEXT,
+  updated_at INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_broadcast_recipients_job ON broadcast_recipients(job_id, status);
+CREATE INDEX IF NOT EXISTS idx_broadcast_recipients_wa_id ON broadcast_recipients(wa_id, updated_at);
 `);
 
 // Additive migration guard - safe to re-run, needed for anyone upgrading
@@ -83,6 +85,7 @@ for (const stmt of [
   "ALTER TABLE contacts ADD COLUMN last_broadcast_error TEXT",
   "ALTER TABLE contacts ADD COLUMN last_broadcast_template TEXT",
   "ALTER TABLE contacts ADD COLUMN last_broadcast_at INTEGER",
+  "ALTER TABLE broadcast_recipients ADD COLUMN updated_at INTEGER",
 ]) {
   try {
     db.exec(stmt);
@@ -293,10 +296,11 @@ export function getPendingRecipients(jobId, limit = 500) {
 }
 
 export function updateRecipientResult(id, { status, wamid, error }) {
-  db.prepare("UPDATE broadcast_recipients SET status = ?, wamid = ?, error = ? WHERE id = ?").run(
+  db.prepare("UPDATE broadcast_recipients SET status = ?, wamid = ?, error = ?, updated_at = ? WHERE id = ?").run(
     status,
     wamid || null,
     error || null,
+    Date.now(),
     id
   );
 }
@@ -353,6 +357,23 @@ export function getAllRecipients(jobId) {
 }
 
 // Jobs interrupted mid-send (e.g. a redeploy) - resumed once at startup.
+// Full history of every broadcast attempt to one contact, across every job
+// ever sent - this is what answers "did campaign X actually reach them",
+// which the single last_broadcast_status field on the contact can't (it
+// only ever holds the *most recent* attempt, overwritten on each send).
+export function getContactBroadcastHistory(waId, limit = 50) {
+  return db
+    .prepare(
+      `SELECT br.job_id, br.status, br.error, br.wamid, br.updated_at, bj.template_name
+       FROM broadcast_recipients br
+       JOIN broadcast_jobs bj ON bj.id = br.job_id
+       WHERE br.wa_id = ?
+       ORDER BY br.updated_at DESC, br.id DESC
+       LIMIT ?`
+    )
+    .all(waId, limit);
+}
+
 export function getUnfinishedJobs() {
   return db.prepare("SELECT id FROM broadcast_jobs WHERE status = 'running'").all();
 }
