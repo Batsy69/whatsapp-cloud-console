@@ -70,6 +70,96 @@ and register `https://<your-ngrok-domain>/webhook` in the Meta App Dashboard
    `WEBHOOK_VERIFY_TOKEN`. Subscribe to the `messages` field.
 6. Mount the `data/` directory (already set up in `docker-compose.yml`) to a
    persistent volume so message history survives redeploys.
+7. **Confirm your WABA is actually subscribed to your app** — this is separate
+   from webhook URL verification and is the single most common cause of
+   status updates (sent/delivered/read/failed) silently never arriving even
+   though everything else looks correctly configured:
+   ```bash
+   curl "https://graph.facebook.com/v23.0/<WABA_ID>/subscribed_apps" \
+     -H "Authorization: Bearer <WHATSAPP_ACCESS_TOKEN>"
+   ```
+   If the response doesn't list your app, subscribe it:
+   ```bash
+   curl -X POST "https://graph.facebook.com/v23.0/<WABA_ID>/subscribed_apps" \
+     -H "Authorization: Bearer <WHATSAPP_ACCESS_TOKEN>"
+   ```
+   Without this, the app can still *send* messages and receive inbound ones,
+   but delivery/read/failure confirmations for outbound messages may never
+   reach your webhook — meaning the whole accuracy system described below
+   would have no data to work with, even though nothing looks broken.
+
+## How message status accuracy actually works
+
+This is worth understanding precisely, because it shapes what "sent" can and
+can't mean in this app.
+
+**There is no synchronous way to confirm delivery.** When you send a message,
+Meta's API returns a 200 with a message ID (`wamid`) — that only means Meta
+*accepted the request*. It says nothing about whether the message reached the
+recipient. Real delivery status only ever arrives later, asynchronously, as a
+separate webhook event. This is a property of the platform itself, not a
+limitation of this app — no WhatsApp integration, however well-built, can give
+you instant delivery confirmation.
+
+**What this app does with that constraint**, since "accurate" has to mean
+"eventually accurate, and never silently wrong" rather than "instant":
+
+- The moment a send is accepted, it's recorded as **`queued`** — deliberately
+  not "sent", to avoid implying delivery that hasn't happened yet.
+- Every subsequent status webhook (`sent` → `delivered` → `read`, or `failed`)
+  updates that record — in the message itself, in the broadcast job's counts,
+  and in the contact's status badge.
+- **Critically, a message that was initially accepted can still fail later.**
+  Error `131026` ("Message Undeliverable" — Meta deliberately won't say why,
+  for recipient privacy: could be blocked, not on WhatsApp, restricted
+  country, etc.) and `131049` (a *per-recipient* cap on marketing messages
+  from all businesses combined, not something specific to your account) both
+  commonly arrive as a `failed` webhook *after* the request was already
+  accepted. This app reconciles that: a recipient already counted as sent
+  gets flipped to failed, the job's tallies adjust to match, and the
+  contact's badge updates — so an async failure never gets silently lost.
+- Broadcast progress keeps polling for about 2 minutes after the send loop
+  itself finishes, specifically to catch these late-arriving confirmations.
+- `read` will legitimately never arrive for many recipients — it depends on
+  their read-receipts privacy setting being on. Its absence is not a signal
+  of anything; only `failed` (with a reason attached) means something went wrong.
+
+**Status vocabulary used throughout the app**: `queued` (accepted, unconfirmed)
+→ `sent` (confirmed in transit) → `delivered` → `read`, or `failed` (with
+Meta's specific error attached) at any point. The Contacts badge collapses
+this to `queued` / `confirmed` (delivered or read) / `failed` for a quick
+glance; click it for the full per-attempt history.
+
+### Meta's failsafes that can block sends even when your code is correct
+
+- **Messaging limits** are tiered — 250 (new/unverified) → 2,000 → 10,000 →
+  100,000 → higher — and set at the *business portfolio* level, shared across
+  every phone number in it, not per-number. They only count
+  business-*initiated* conversations (a template sent to someone outside
+  their 24h service window); replying within an open window is unlimited.
+  Check your current tier:
+  ```bash
+  curl "https://graph.facebook.com/v23.0/<PHONE_NUMBER_ID>?fields=whatsapp_business_manager_messaging_limit" \
+    -H "Authorization: Bearer <WHATSAPP_ACCESS_TOKEN>"
+  ```
+- **Quality rating** (Green/Yellow/Red, driven by block/report rates,
+  recency-weighted) gates tier upgrades and can trigger a *downgrade* if it
+  stays Red/Low for 7 days straight. A large broadcast to a poorly-targeted
+  or stale list is the most common way to tank it.
+- **Auto-scaling** happens automatically — meet ~50% utilization of your
+  current limit over 7 days while keeping quality good, and Meta upgrades you
+  within about 6 hours. No action needed on your end beyond sending
+  legitimately engaged traffic.
+- **Don't retry `131026`/`131049` immediately** — Meta's own guidance is that
+  an immediate retry just reproduces the same failure; space retries out with
+  increasing intervals instead. The Retry button in this app does an
+  immediate retry, which is right for most failure causes (a transient error,
+  a since-fixed template) but not ideal specifically for these two codes if
+  they recur repeatedly for the same recipient.
+- **Rate/throughput limits** (`4`, `80007`, `130429`, `131056`) are about
+  *speed*, not the daily cap — sending too fast. The 200ms delay between
+  broadcast sends in this app already paces well under typical throughput
+  limits for standard accounts.
 
 ## Feature coverage
 
@@ -108,6 +198,11 @@ and register `https://<your-ngrok-domain>/webhook` in the Meta App Dashboard
   cancelled before they fire
 
 **Failure tracking**
+- Every broadcast attempt is tracked through its *real* lifecycle via Meta's
+  status webhooks (queued → sent → delivered/read, or failed with the actual
+  reason) — not just whether the initial API call was accepted. See "How
+  message status accuracy actually works" above for the full picture,
+  including async failures that arrive after an initial success.
 - Every broadcast attempt (success or failure) is recorded directly on the
   contact, not just buried in that one job's history — so a failure stays
   visible wherever you're looking, not only while that specific job is open

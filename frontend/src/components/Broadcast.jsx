@@ -129,10 +129,15 @@ function ProgressPanel({ job, onExport, onCancel, onRetry }) {
       <div className="progress-track">
         <div className="progress-fill" style={{ width: `${pct}%` }} />
       </div>
-      <div style={{ display: "flex", gap: 16, fontSize: 12.5, margin: "8px 0 14px", fontFamily: "var(--mono)" }}>
-        <span>{done} / {job.total} processed</span>
-        <span style={{ color: "var(--accent)" }}>{job.sent} sent</span>
-        {job.failed > 0 && <span style={{ color: "var(--danger)" }}>{job.failed} failed</span>}
+      <div style={{ display: "flex", gap: 16, fontSize: 12.5, margin: "8px 0 6px", fontFamily: "var(--mono)" }}>
+        <span>{done} / {job.total} accepted by Meta</span>
+        <span style={{ color: "var(--accent)" }}>{job.sent} accepted</span>
+        {job.failed > 0 && <span style={{ color: "var(--danger)" }}>{job.failed} rejected</span>}
+      </div>
+      <div style={{ fontSize: 11.5, color: "var(--text-soft)", marginBottom: 10 }}>
+        Acceptance isn't delivery — <strong style={{ color: "#1f6b41" }}>{job.confirmed_delivered || 0} confirmed delivered</strong>
+        {job.confirmed_failed > 0 && <> · <strong style={{ color: "var(--danger)" }}>{job.confirmed_failed} confirmed failed after acceptance</strong></>}
+        {" "}so far, as Meta's status webhooks arrive (this keeps updating even after this job shows done).
       </div>
       {job.recent_failures?.length > 0 && (
         <>
@@ -385,15 +390,24 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
     if (!activeJobId) return;
     let cancelled = false;
     let timer;
+    let extraPollsAfterCompletion = 0;
+    // Meta's delivery/failure confirmations are async and can arrive well
+    // after the send loop itself finishes - keep checking for a while after
+    // "completed" so confirmed_delivered/confirmed_failed don't go stale.
+    const MAX_EXTRA_POLLS = 24; // ~2 minutes at 5s intervals
     async function poll() {
       try {
         const job = await api.getBroadcastJob(activeJobId);
         if (cancelled) return;
         setActiveJob(job);
-        if (job.status !== "completed") {
-          timer = setTimeout(poll, job.status === "scheduled" ? 15000 : 1500);
-        } else {
+        if (job.status === "scheduled") {
+          timer = setTimeout(poll, 15000);
+        } else if (job.status !== "completed") {
+          timer = setTimeout(poll, 1500);
+        } else if (extraPollsAfterCompletion < MAX_EXTRA_POLLS) {
+          extraPollsAfterCompletion++;
           refreshHistory();
+          timer = setTimeout(poll, 5000);
         }
       } catch {
         if (!cancelled) timer = setTimeout(poll, 2000);

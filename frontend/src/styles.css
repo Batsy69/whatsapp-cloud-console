@@ -344,7 +344,8 @@ td { padding: 9px 8px; border-bottom: 1px solid var(--line); vertical-align: top
   font-size: 10.5px; padding: 3px 8px; border-radius: 20px; white-space: nowrap;
 }
 .status-badge.failed { background: var(--danger-soft); color: var(--danger); }
-.status-badge.sent { background: var(--accent-soft); color: #1f6b41; }
+.status-badge.sent, .status-badge.delivered, .status-badge.read, .status-badge.confirmed { background: var(--accent-soft); color: #1f6b41; }
+.status-badge.queued { background: var(--warn-soft); color: #8a611f; }
 .status-badge-btn { border: none; cursor: pointer; font-family: inherit; }
 .status-badge-btn:hover { filter: brightness(0.95); }
 

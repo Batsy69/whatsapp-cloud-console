@@ -1,6 +1,15 @@
 import { Router } from "express";
 import crypto from "node:crypto";
-import { upsertContact, insertMessage, updateMessageStatus, messageExistsByWamid } from "../db.js";
+import {
+  upsertContact,
+  insertMessage,
+  updateMessageStatus,
+  messageExistsByWamid,
+  getMessageByWamid,
+  reconcileBroadcastRecipient,
+  reconcileContactOnAsyncFailure,
+  reconcileContactOnConfirmedDelivery,
+} from "../db.js";
 
 const router = Router();
 
@@ -113,8 +122,31 @@ router.post("/", (req, res) => {
           });
         }
 
+        // Status updates (sent/delivered/read/failed) are the *only* real
+        // confirmation of what actually happened to a message - the initial
+        // API response just means Meta accepted the request, nothing more.
+        // Every one of these gets reconciled against that optimistic
+        // initial record, including flipping an earlier "sent" back to
+        // "failed" if an async failure arrives later (which does happen).
         for (const status of value.statuses || []) {
-          updateMessageStatus(status.id, status.status);
+          const errorInfo = status.errors?.[0];
+          const errorCode = errorInfo?.code || null;
+          const errorTitle = errorInfo?.title || errorInfo?.message || null;
+
+          updateMessageStatus(status.id, status.status, errorCode, errorTitle);
+          reconcileBroadcastRecipient(status.id, status.status, errorTitle);
+
+          if (status.status === "failed") {
+            const msg = getMessageByWamid(status.id);
+            if (msg && msg.type === "template") {
+              reconcileContactOnAsyncFailure(msg.wa_id, msg.timestamp, errorTitle, msg.template_name);
+            }
+          } else if (status.status === "delivered" || status.status === "read") {
+            const msg = getMessageByWamid(status.id);
+            if (msg && msg.type === "template") {
+              reconcileContactOnConfirmedDelivery(msg.wa_id, msg.timestamp);
+            }
+          }
         }
       }
     }

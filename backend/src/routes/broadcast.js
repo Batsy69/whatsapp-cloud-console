@@ -70,7 +70,10 @@ async function processJob(jobId, templateName, languageCode, sharedComponents, d
       try {
         const result = await sendTemplateMessage(r.wa_id, templateName, languageCode, components);
         const wamid = result?.messages?.[0]?.id || null;
-        updateRecipientResult(r.id, { status: "sent", wamid });
+        // "queued" - Meta accepted the request, that's not delivery confirmation.
+        // reconcileBroadcastRecipient() upgrades this (or flips it to failed)
+        // once a real status webhook arrives.
+        updateRecipientResult(r.id, { status: "queued", wamid });
         bumpJobCounts(jobId, { sentDelta: 1 });
 
         // Auto-saves the recipient into the contact directory - this is
@@ -78,7 +81,7 @@ async function processJob(jobId, templateName, languageCode, sharedComponents, d
         // after any broadcast, without a separate import step. Also clears
         // any previous failure flag on this contact, since this send worked.
         upsertContact(r.wa_id, null);
-        recordBroadcastResult(r.wa_id, { status: "sent", error: null, template: templateName });
+        recordBroadcastResult(r.wa_id, { status: "queued", error: null, template: templateName });
         insertMessage({
           wa_id: r.wa_id,
           wamid,
@@ -86,7 +89,7 @@ async function processJob(jobId, templateName, languageCode, sharedComponents, d
           type: "template",
           body: `[broadcast: ${templateName}]`,
           template_name: templateName,
-          status: "sent",
+          status: "queued",
           timestamp: Date.now(),
           raw: JSON.stringify(result),
         });

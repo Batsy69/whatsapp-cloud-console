@@ -320,7 +320,13 @@ export default function Contacts({ onBroadcastToSelection }) {
                           title={c.last_broadcast_error || "Click to view full broadcast history"}
                           onClick={() => toggleHistory(c.wa_id)}
                         >
-                          {c.last_broadcast_status === "failed" ? `Failed · ${c.last_broadcast_template}` : "Sent"}
+                          {c.last_broadcast_status === "failed"
+                            ? `Failed · ${c.last_broadcast_template}`
+                            : c.last_broadcast_status === "queued"
+                            ? "Queued — awaiting confirmation"
+                            : c.last_broadcast_status === "confirmed"
+                            ? "Confirmed delivered"
+                            : "Confirmed sent"}
                           {" "}{expandedWaId === c.wa_id ? "▴" : "▾"}
                         </button>
                       ) : "—"}

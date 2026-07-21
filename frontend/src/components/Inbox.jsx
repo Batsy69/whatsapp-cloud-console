@@ -247,6 +247,9 @@ export default function Inbox() {
                     {new Date(m.timestamp).toLocaleString()}
                     {m.direction === "outbound" && m.status ? ` · ${m.status}` : ""}
                   </div>
+                  {m.direction === "outbound" && m.status === "failed" && m.status_error_title && (
+                    <div className="meta" style={{ color: "var(--danger)" }}>{m.status_error_title}</div>
+                  )}
                 </div>
               ))}
             </div>

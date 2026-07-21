@@ -85,6 +85,10 @@ for (const stmt of [
   "ALTER TABLE contacts ADD COLUMN last_broadcast_template TEXT",
   "ALTER TABLE contacts ADD COLUMN last_broadcast_at INTEGER",
   "ALTER TABLE broadcast_recipients ADD COLUMN updated_at INTEGER",
+  "ALTER TABLE messages ADD COLUMN status_error_code INTEGER",
+  "ALTER TABLE messages ADD COLUMN status_error_title TEXT",
+  "ALTER TABLE broadcast_jobs ADD COLUMN confirmed_delivered INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE broadcast_jobs ADD COLUMN confirmed_failed INTEGER NOT NULL DEFAULT 0",
 ]) {
   try {
     db.exec(stmt);
@@ -207,8 +211,80 @@ export function insertMessage(msg) {
   });
 }
 
-export function updateMessageStatus(wamid, status) {
-  db.prepare("UPDATE messages SET status = ? WHERE wamid = ?").run(status, wamid);
+export function updateMessageStatus(wamid, status, errorCode, errorTitle) {
+  db.prepare(
+    "UPDATE messages SET status = ?, status_error_code = ?, status_error_title = ? WHERE wamid = ?"
+  ).run(status, errorCode || null, errorTitle || null, wamid);
+}
+
+export function getMessageByWamid(wamid) {
+  return db.prepare("SELECT * FROM messages WHERE wamid = ?").get(wamid);
+}
+
+export function getBroadcastRecipientByWamid(wamid) {
+  return db.prepare("SELECT * FROM broadcast_recipients WHERE wamid = ?").get(wamid);
+}
+
+// An initial 200 from the send call only means Meta *accepted* the request -
+// it gets recorded as 'queued'. Real delivery truth only ever arrives later,
+// asynchronously, via these status webhooks. This reconciles that later
+// truth against the optimistic initial record - including flipping a
+// recipient (and the job's tally) from an earlier "sent" back to "failed"
+// if an async failure webhook arrives after the fact, which does happen
+// (e.g. error 131026/131049 - Meta accepts the request, then can't actually
+// deliver it for reasons it won't always disclose).
+export function reconcileBroadcastRecipient(wamid, newStatus, errorTitle) {
+  const row = getBroadcastRecipientByWamid(wamid);
+  if (!row) return; // not a broadcast-originated message
+
+  if (row.status === "failed") return; // already terminal, don't un-fail it
+
+  if (newStatus === "failed") {
+    const wasCountedSent = ["queued", "sent", "delivered", "read"].includes(row.status);
+    db.prepare("UPDATE broadcast_recipients SET status = 'failed', error = ?, updated_at = ? WHERE id = ?").run(
+      errorTitle || "Delivery failed",
+      Date.now(),
+      row.id
+    );
+    if (wasCountedSent) {
+      db.prepare(
+        "UPDATE broadcast_jobs SET sent = MAX(sent - 1, 0), failed = failed + 1, confirmed_failed = confirmed_failed + 1 WHERE id = ?"
+      ).run(row.job_id);
+    }
+  } else if (["sent", "delivered", "read"].includes(newStatus)) {
+    const wasAlreadyConfirmedDelivered = ["delivered", "read"].includes(row.status);
+    db.prepare("UPDATE broadcast_recipients SET status = ?, updated_at = ? WHERE id = ?").run(newStatus, Date.now(), row.id);
+    if (["delivered", "read"].includes(newStatus) && !wasAlreadyConfirmedDelivered) {
+      db.prepare("UPDATE broadcast_jobs SET confirmed_delivered = confirmed_delivered + 1 WHERE id = ?").run(row.job_id);
+    }
+  }
+}
+
+// Same idea for the contact-level badge - only applied if this wamid's
+// message is genuinely the contact's most recent tracked send, so a
+// late-arriving webhook about an older message can't clobber the status of
+// a newer one sent since.
+export function reconcileContactOnAsyncFailure(waId, messageTimestamp, errorTitle, templateName) {
+  const latest = db
+    .prepare("SELECT MAX(timestamp) AS maxTs FROM messages WHERE wa_id = ? AND type = 'template'")
+    .get(waId);
+  if (!latest || latest.maxTs !== messageTimestamp) return;
+  db.prepare(
+    "UPDATE contacts SET last_broadcast_status = 'failed', last_broadcast_error = ?, last_broadcast_template = ? WHERE wa_id = ?"
+  ).run(errorTitle || "Delivery failed (confirmed async)", templateName, waId);
+}
+
+// Symmetric success-path version - without this, a contact whose message
+// was actually confirmed delivered would stay stuck showing "queued"
+// forever, since only the initial optimistic write ever touched their badge.
+export function reconcileContactOnConfirmedDelivery(waId, messageTimestamp) {
+  const latest = db
+    .prepare("SELECT MAX(timestamp) AS maxTs FROM messages WHERE wa_id = ? AND type = 'template'")
+    .get(waId);
+  if (!latest || latest.maxTs !== messageTimestamp) return;
+  db.prepare(
+    "UPDATE contacts SET last_broadcast_status = 'confirmed', last_broadcast_error = NULL WHERE wa_id = ? AND last_broadcast_status != 'failed'"
+  ).run(waId);
 }
 
 // Meta documents that webhook events may be redelivered (e.g. if we don't

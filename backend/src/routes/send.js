@@ -91,7 +91,7 @@ router.post("/", async (req, res) => {
       type,
       body: storedBody,
       template_name: type === "template" ? template_name : null,
-      status: "sent",
+      status: "queued", // Meta accepted the request - this isn't delivery confirmation, that's async via webhook
       timestamp: Date.now(),
       raw: JSON.stringify(result),
       media_id: storedMedia,
