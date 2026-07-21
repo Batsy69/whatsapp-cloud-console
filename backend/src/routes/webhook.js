@@ -1,7 +1,22 @@
 import { Router } from "express";
-import { upsertContact, insertMessage, updateMessageStatus } from "../db.js";
+import crypto from "node:crypto";
+import { upsertContact, insertMessage, updateMessageStatus, messageExistsByWamid } from "../db.js";
 
 const router = Router();
+
+// Confirms the request actually came from Meta, not a fabricated payload
+// POSTed by anyone who finds this URL. Skipped (with a startup warning
+// already logged) if META_APP_SECRET isn't configured.
+function isValidSignature(req) {
+  const secret = process.env.META_APP_SECRET;
+  if (!secret) return true; // not configured - can't verify, allow through
+  const signature = req.headers["x-hub-signature-256"];
+  if (!signature || !req.rawBody) return false;
+  const expected = "sha256=" + crypto.createHmac("sha256", secret).update(req.rawBody).digest("hex");
+  const a = Buffer.from(signature);
+  const b = Buffer.from(expected);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
 
 // Meta calls this once, when you register the webhook URL in the App Dashboard.
 router.get("/", (req, res) => {
@@ -60,6 +75,11 @@ function parseInbound(msg) {
 
 // Meta POSTs every inbound message and every status update (sent/delivered/read/failed) here.
 router.post("/", (req, res) => {
+  if (!isValidSignature(req)) {
+    console.warn("Webhook POST rejected: invalid or missing X-Hub-Signature-256");
+    return res.sendStatus(401);
+  }
+
   // Always 200 quickly - Meta retries with backoff if you don't, which can
   // duplicate events. Do the real work synchronously since it's cheap (SQLite).
   try {
@@ -69,6 +89,8 @@ router.post("/", (req, res) => {
         const value = change.value || {};
 
         for (const msg of value.messages || []) {
+          if (messageExistsByWamid(msg.id)) continue; // duplicate webhook delivery - already recorded
+
           const contactName = (value.contacts || []).find((c) => c.wa_id === msg.from)?.profile?.name;
           upsertContact(msg.from, contactName);
 

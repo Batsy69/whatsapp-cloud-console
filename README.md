@@ -4,6 +4,24 @@ A self-hosted frontend for the official WhatsApp Business Cloud API (Meta Graph 
 inbox, template management, and broadcast sending. Talks to `graph.facebook.com` directly,
 no third-party wrapper.
 
+## ⚠️ Security — read this before deploying
+
+**Every route in this app is open with no login unless you set `BASIC_AUTH_USER` and
+`BASIC_AUTH_PASS`.** If you deploy this on a public domain (which Coolify gives you by
+default) without setting them, anyone who finds the URL can read every customer
+conversation and phone number, send broadcasts using your business's WhatsApp number,
+and delete your contacts and templates. There is no other access control.
+
+Set both env vars — pick any username and a strong password — and the whole app requires
+a login (your browser will prompt for it natively). This doesn't happen automatically on
+upgrade to avoid breaking an existing deployment silently, but the server logs a loud
+warning on every startup until you do.
+
+Also set `META_APP_SECRET` (App Dashboard > Settings > Basic) so inbound webhook requests
+are verified as actually coming from Meta, not a fabricated payload someone else could
+POST to your webhook URL. Same deal — optional but strongly recommended, and warned about
+loudly if missing.
+
 ## What's inside
 
 - `backend/` — Express + SQLite. Holds your permanent access token, receives the
@@ -173,9 +191,36 @@ and register `https://<your-ngrok-domain>/webhook` in the Meta App Dashboard
   has captured and stored in SQLite since this app went live — Meta doesn't backfill
   past conversations.
 - **Broadcast pacing**: sends are sequential with a small delay (see `delay_ms` in
-  `backend/src/routes/broadcast.js`). Fine for a few hundred recipients; for real
-  volume, swap that loop for a proper job queue (e.g. BullMQ) so it isn't holding
-  one HTTP request open.
+  `backend/src/routes/broadcast.js`), running as a background job rather than
+  holding an HTTP request open — this already handles thousands of recipients
+  without timing out (see Broadcast scheduling above). For very high volume you
+  may still want a proper job queue (e.g. BullMQ) for retry/backoff sophistication
+  beyond what's here, but it isn't required for correctness at typical business scale.
+- **Webhook reliability**: Meta may redeliver the same webhook event (e.g. if this
+  server doesn't ack fast enough). Inbound messages are deduplicated by `wamid`
+  before insertion, so a redelivery doesn't create a duplicate message in the Inbox.
+- **Request size**: the JSON body limit is set to 25MB (Express defaults to 100KB),
+  since a bulk broadcast or contact import with a few thousand rows of personalization
+  data comfortably exceeds the default and would otherwise fail with a silent 413.
+- **Media header expiry risk**: a template header's uploaded media (image/video/PDF)
+  is sent to Meta at compose time, not at actual-send time. This is a non-issue for
+  an immediate broadcast, but for a *scheduled* broadcast — or a *retry* of a
+  media-header job run much later — Meta doesn't guarantee the uploaded media stays
+  valid indefinitely. The UI warns about this in both places; there's no way to
+  fully eliminate the risk in code since it depends on Meta's media retention window.
+
+## Known limitations
+
+- **Switching tabs loses in-progress state.** Each tab (Inbox/Contacts/Templates/
+  Broadcast) fully unmounts when you navigate away, so an unsaved form, a built-up
+  recipient selection in Broadcast, etc. resets if you click to another tab and
+  back. Fixing this properly means either lifting significant state up to `App.jsx`
+  or changing how tabs render (keep-alive style), both of which carry real risk of
+  layout regressions for a fairly low-frequency annoyance — flagging it here rather
+  than rushing a fix that could break something else.
+- **Template list pagination**: `listTemplates()` fetches up to 200 templates in one
+  call with no pagination follow-up. Fine for a normal-sized template library; would
+  need `paging.next` handling if you ever exceed 200 templates on one WABA.
 
 ## Extending
 

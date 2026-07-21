@@ -77,6 +77,15 @@ function previewNormalize(raw) {
 function ProgressPanel({ job, onExport, onCancel, onRetry }) {
   if (!job) return <div style={{ fontSize: 13, color: "var(--text-soft)" }}>No broadcast selected yet.</div>;
 
+  const hasMediaHeader = (() => {
+    try {
+      const comps = JSON.parse(job.shared_components || "[]");
+      return comps.some((c) => c.type === "header" && c.parameters?.[0]?.type && c.parameters[0].type !== "text");
+    } catch {
+      return false;
+    }
+  })();
+
   if (job.status === "scheduled") {
     return (
       <>
@@ -125,15 +134,23 @@ function ProgressPanel({ job, onExport, onCancel, onRetry }) {
         </>
       )}
       {job.status === "completed" && (
-        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-          {job.failed > 0 && (
-            <button className="btn-primary" onClick={() => onRetry(job.id)}>
-              Retry {job.failed} failed
-            </button>
+        <div style={{ marginTop: 12 }}>
+          {job.failed > 0 && hasMediaHeader && (
+            <div style={{ fontSize: 11, color: "var(--text-soft)", marginBottom: 6 }}>
+              This template has a media header — retry reuses the original file reference, which may have
+              expired if it's been a while. If retry fails for everyone, re-upload the file fresh instead.
+            </div>
           )}
-          <button className="btn-danger" style={{ borderColor: "var(--line)", color: "var(--text-soft)" }} onClick={() => onExport(job.id)}>
-            Download full results (CSV)
-          </button>
+          <div style={{ display: "flex", gap: 8 }}>
+            {job.failed > 0 && (
+              <button className="btn-primary" onClick={() => onRetry(job.id)}>
+                Retry {job.failed} failed
+              </button>
+            )}
+            <button className="btn-danger" style={{ borderColor: "var(--line)", color: "var(--text-soft)" }} onClick={() => onExport(job.id)}>
+              Download full results (CSV)
+            </button>
+          </div>
         </div>
       )}
     </>
@@ -711,6 +728,15 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
                 onChange={(e) => setScheduleAt(e.target.value)}
                 style={{ marginTop: 6 }}
               />
+            )}
+            {scheduleEnabled && analysis?.isMediaHeader && (
+              <div className="banner error" style={{ fontSize: 11.5, marginTop: 8 }}>
+                Heads up: the {analysis.headerMediaType} you upload gets sent to Meta now, but won't actually be
+                used until this fires. Meta doesn't guarantee uploaded media stays valid indefinitely — for a
+                schedule more than a few hours out, there's a real chance it expires before send time and the
+                whole broadcast fails. Safer to send media-header broadcasts immediately, or re-upload closer to
+                when you actually want it to go out.
+              </div>
             )}
           </div>
 

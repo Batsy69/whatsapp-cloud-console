@@ -72,6 +72,10 @@ export default function Inbox() {
   async function refreshList() {
     const data = await api.getConversations(showArchived);
     setConversations(data);
+    // Keep the open conversation's window/name in sync too - otherwise the
+    // window pill can keep showing "open" well after it's actually closed,
+    // since `selected` would stay pinned to whatever it was at click time.
+    setSelected((prev) => (prev ? data.find((c) => c.wa_id === prev.wa_id) || prev : prev));
   }
 
   useEffect(() => {

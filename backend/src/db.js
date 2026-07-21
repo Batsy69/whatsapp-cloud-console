@@ -208,6 +208,13 @@ export function updateMessageStatus(wamid, status) {
   db.prepare("UPDATE messages SET status = ? WHERE wamid = ?").run(status, wamid);
 }
 
+// Meta documents that webhook events may be redelivered (e.g. if we don't
+// ack fast enough). Without this check, a redelivered inbound message would
+// get inserted twice and show up as a duplicate in the Inbox thread.
+export function messageExistsByWamid(wamid) {
+  return !!db.prepare("SELECT 1 FROM messages WHERE wamid = ? LIMIT 1").get(wamid);
+}
+
 export function getLatestInboundWamid(waId) {
   return db
     .prepare(
@@ -356,7 +363,6 @@ export function getAllRecipients(jobId) {
   return db.prepare("SELECT wa_id, status, wamid, error FROM broadcast_recipients WHERE job_id = ?").all(jobId);
 }
 
-// Jobs interrupted mid-send (e.g. a redeploy) - resumed once at startup.
 // Full history of every broadcast attempt to one contact, across every job
 // ever sent - this is what answers "did campaign X actually reach them",
 // which the single last_broadcast_status field on the contact can't (it
@@ -374,6 +380,7 @@ export function getContactBroadcastHistory(waId, limit = 50) {
     .all(waId, limit);
 }
 
+// Jobs interrupted mid-send (e.g. a redeploy) - resumed once at startup.
 export function getUnfinishedJobs() {
   return db.prepare("SELECT id FROM broadcast_jobs WHERE status = 'running'").all();
 }
