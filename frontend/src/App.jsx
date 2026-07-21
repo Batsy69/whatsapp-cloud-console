@@ -15,7 +15,7 @@ export default function App() {
   const [tab, setTab] = useState("inbox");
   const [broadcastPrefill, setBroadcastPrefill] = useState(null);
 
-  function handleBroadcastToGroup(recipients, label) {
+  function handleBroadcastToSelection(recipients, label) {
     setBroadcastPrefill({ recipients, label });
     setTab("broadcast");
   }
@@ -48,7 +48,7 @@ export default function App() {
         </div>
         <div className="view">
           {tab === "inbox" && <Inbox />}
-          {tab === "contacts" && <Contacts onBroadcastToGroup={handleBroadcastToGroup} />}
+          {tab === "contacts" && <Contacts onBroadcastToSelection={handleBroadcastToSelection} />}
           {tab === "templates" && <Templates />}
           {tab === "broadcast" && <Broadcast prefill={broadcastPrefill} onConsumePrefill={() => setBroadcastPrefill(null)} />}
         </div>

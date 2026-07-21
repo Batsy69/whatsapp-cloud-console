@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api.js";
 
 const PAGE_SIZE = 50;
+const FIELD_PRIORITY = ["name", "company", "city", "state", "email"];
 
 function varCount(text) {
   return new Set((text || "").match(/\{\{\d+\}\}/g) || []).size;
@@ -57,15 +58,14 @@ function parseCsvFile(text) {
 }
 
 function resolveField(contact, key) {
-  if (!key) return "";
+  if (!contact || !key) return "";
   if (key.startsWith("custom:")) return contact.custom_fields?.[key.slice(7)] ?? "";
   return contact[key] ?? "";
 }
 
 // Mirrors the backend's normalizePhone default (country code 91) closely
 // enough for an accurate preview/dedupe pass. The server re-normalizes and
-// dedupes again at send time regardless, so this is display-only, not the
-// source of truth.
+// dedupes again at send time regardless, so this is display-only.
 function previewNormalize(raw) {
   const digits = String(raw || "").replace(/[^\d]/g, "");
   return digits.length === 10 ? "91" + digits : digits;
@@ -134,14 +134,12 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
   const [templates, setTemplates] = useState([]);
   const [templateName, setTemplateName] = useState("");
   const [headerVars, setHeaderVars] = useState([]);
-  const [bodyVars, setBodyVars] = useState([]);
   const [buttonVar, setButtonVar] = useState("");
   const [recipientsText, setRecipientsText] = useState("");
   const [csvRows, setCsvRows] = useState([]);
   const [csvFileName, setCsvFileName] = useState("");
-  const [groupContacts, setGroupContacts] = useState([]);
-  const [groupLabel, setGroupLabel] = useState("");
-  const [fieldMapping, setFieldMapping] = useState([]);
+  const [contactSelection, setContactSelection] = useState([]); // full contact records from the Contacts tab
+  const [selectionLabel, setSelectionLabel] = useState("");
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
   const [scheduleAt, setScheduleAt] = useState("");
   const [error, setError] = useState("");
@@ -155,7 +153,8 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
   const [previewMode, setPreviewMode] = useState(false);
   const [previewRows, setPreviewRows] = useState([]);
   const [previewPage, setPreviewPage] = useState(0);
-  const [bulkVarInputs, setBulkVarInputs] = useState([]);
+  const [columnMode, setColumnMode] = useState([]); // per body-variable: "fixed" | "name" | "company" | ... | "custom:x"
+  const [fixedValueInputs, setFixedValueInputs] = useState([]);
 
   useEffect(() => {
     api.getTemplates().then((t) => setTemplates(t.filter((x) => x.status === "APPROVED")));
@@ -164,8 +163,8 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
 
   useEffect(() => {
     if (prefill) {
-      setGroupContacts(prefill.recipients);
-      setGroupLabel(prefill.label);
+      setContactSelection(prefill.recipients);
+      setSelectionLabel(prefill.label);
       setCsvRows([]);
       setCsvFileName("");
       setRecipientsText("");
@@ -182,17 +181,15 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
 
   const customFieldKeys = useMemo(() => {
     const keys = new Set();
-    groupContacts.forEach((c) => c.custom_fields && Object.keys(c.custom_fields).forEach((k) => keys.add(k)));
+    contactSelection.forEach((c) => c.custom_fields && Object.keys(c.custom_fields).forEach((k) => keys.add(k)));
     return [...keys];
-  }, [groupContacts]);
+  }, [contactSelection]);
 
   function handleSelectTemplate(name) {
     setTemplateName(name);
     const t = templates.find((x) => x.name === name);
     const a = t ? analyzeTemplate(t) : null;
     setHeaderVars(new Array(a?.headerVarCount || 0).fill(""));
-    setBodyVars(new Array(a?.bodyVarCount || 0).fill(""));
-    setFieldMapping(new Array(a?.bodyVarCount || 0).fill(""));
     setButtonVar("");
   }
 
@@ -204,7 +201,7 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
       setCsvRows(parseCsvFile(String(reader.result)));
       setCsvFileName(file.name);
       setRecipientsText("");
-      setGroupContacts([]);
+      setContactSelection([]);
     };
     reader.readAsText(file);
     e.target.value = "";
@@ -213,8 +210,8 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
   function clearRecipientSource() {
     setCsvRows([]);
     setCsvFileName("");
-    setGroupContacts([]);
-    setGroupLabel("");
+    setContactSelection([]);
+    setSelectionLabel("");
   }
 
   const textRecipients = useMemo(
@@ -222,34 +219,40 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
     [recipientsText]
   );
 
-  const recipientCount = groupContacts.length > 0 ? groupContacts.length : csvRows.length > 0 ? csvRows.length : textRecipients.length;
+  const recipientCount = contactSelection.length > 0 ? contactSelection.length : csvRows.length > 0 ? csvRows.length : textRecipients.length;
+  const hasContactSource = contactSelection.length > 0;
 
   // --- Build the editable preview table from whatever source is active ---
   function handleBuildPreview() {
     const bodyVarCount = analysis?.bodyVarCount || 0;
     let rows;
 
-    if (groupContacts.length > 0) {
-      const hasMapping = fieldMapping.some((f) => f);
-      rows = groupContacts.map((c) => ({
+    if (contactSelection.length > 0) {
+      // Auto-guess a sensible field for each {{n}} the first time (name, then
+      // company, then city...), fully overridable per-column in the table.
+      rows = contactSelection.map((c) => ({
         wa_id: c.wa_id,
         label: c.name || c.wa_id,
-        variables: Array.from({ length: bodyVarCount }, (_, i) =>
-          hasMapping && fieldMapping[i] ? resolveField(c, fieldMapping[i]) : bodyVars[i] || ""
-        ),
+        _contact: c,
+        variables: Array.from({ length: bodyVarCount }, (_, i) => resolveField(c, FIELD_PRIORITY[i]) || ""),
       }));
+      setColumnMode(Array.from({ length: bodyVarCount }, (_, i) => (resolveField(contactSelection[0], FIELD_PRIORITY[i]) ? FIELD_PRIORITY[i] : "fixed")));
     } else if (csvRows.length > 0) {
       rows = csvRows.map((r) => ({
         wa_id: r.wa_id,
         label: r.wa_id,
-        variables: Array.from({ length: bodyVarCount }, (_, i) => r.variables?.[i] ?? bodyVars[i] ?? ""),
+        _contact: null,
+        variables: Array.from({ length: bodyVarCount }, (_, i) => r.variables?.[i] ?? ""),
       }));
+      setColumnMode(new Array(bodyVarCount).fill("fixed"));
     } else {
       rows = textRecipients.map((r) => ({
         wa_id: r.wa_id,
         label: r.wa_id,
-        variables: Array.from({ length: bodyVarCount }, (_, i) => bodyVars[i] || ""),
+        _contact: null,
+        variables: new Array(bodyVarCount).fill(""),
       }));
+      setColumnMode(new Array(bodyVarCount).fill("fixed"));
     }
 
     // De-dupe in the preview too, so what you review matches what actually sends.
@@ -263,7 +266,7 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
     }
 
     setPreviewRows(deduped);
-    setBulkVarInputs(new Array(bodyVarCount).fill(""));
+    setFixedValueInputs(new Array(bodyVarCount).fill(""));
     setPreviewPage(0);
     setPreviewMode(true);
   }
@@ -286,8 +289,19 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
   function updatePreviewPhone(globalIndex, value) {
     setPreviewRows((prev) => prev.map((r, i) => (i === globalIndex ? { ...r, wa_id: value.replace(/[^\d]/g, "") } : r)));
   }
-  function applyBulkVar(varIndex) {
-    const val = bulkVarInputs[varIndex];
+
+  // Changing a column's source re-fills that entire column immediately, so
+  // the effect of the choice is visible right away rather than abstract.
+  function handleColumnModeChange(varIndex, mode) {
+    setColumnMode((prev) => { const next = [...prev]; next[varIndex] = mode; return next; });
+    if (mode !== "fixed") {
+      setPreviewRows((prev) =>
+        prev.map((r) => ({ ...r, variables: r.variables.map((v, j) => (j === varIndex ? resolveField(r._contact, mode) : v)) }))
+      );
+    }
+  }
+  function applyFixedValue(varIndex) {
+    const val = fixedValueInputs[varIndex];
     setPreviewRows((prev) => prev.map((r) => ({ ...r, variables: r.variables.map((v, j) => (j === varIndex ? val : v)) })));
   }
 
@@ -296,8 +310,6 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
   const pageStart = previewPage * PAGE_SIZE;
   const pagedRows = previewRows.slice(pageStart, pageStart + PAGE_SIZE);
 
-  // Poll the active job until it completes. Scheduled jobs are checked less
-  // often since they may not fire for hours.
   useEffect(() => {
     if (!activeJobId) return;
     let cancelled = false;
@@ -386,8 +398,8 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
     window.open(api.exportBroadcastJobUrl(jobId), "_blank");
   }
 
-  const fieldOptions = ["", "name", "company", "city", "state", "email", ...customFieldKeys.map((k) => `custom:${k}`)];
-  const fieldLabel = (key) => (key === "" ? "— shared default —" : key.startsWith("custom:") ? key.slice(7) : key);
+  const columnFieldOptions = ["fixed", "name", "company", "city", "state", "email", ...customFieldKeys.map((k) => `custom:${k}`)];
+  const columnFieldLabel = (key) => (key === "fixed" ? "Fixed value" : key.startsWith("custom:") ? key.slice(7) : key.charAt(0).toUpperCase() + key.slice(1));
 
   // --- Preview/review screen ---
   if (previewMode) {
@@ -413,22 +425,6 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
           </div>
         )}
 
-        {(analysis?.bodyVarCount || 0) > 0 && (
-          <div className="bulk-var-row">
-            <span style={{ fontSize: 11.5, color: "var(--text-soft)" }}>Apply a value to every row:</span>
-            {bulkVarInputs.map((v, i) => (
-              <span key={i} style={{ display: "flex", gap: 4 }}>
-                <input
-                  placeholder={`{{${i + 1}}}`}
-                  value={v}
-                  onChange={(e) => { const next = [...bulkVarInputs]; next[i] = e.target.value; setBulkVarInputs(next); }}
-                />
-                <button onClick={() => applyBulkVar(i)}>Apply</button>
-              </span>
-            ))}
-          </div>
-        )}
-
         <div className="card preview-table-wrap">
           <table>
             <thead>
@@ -436,7 +432,29 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
                 <th></th>
                 <th>Phone</th>
                 <th>Contact</th>
-                {Array.from({ length: analysis?.bodyVarCount || 0 }, (_, i) => <th key={i}>{`{{${i + 1}}}`}</th>)}
+                {Array.from({ length: analysis?.bodyVarCount || 0 }, (_, i) => (
+                  <th key={i} className="var-col-header">
+                    <div style={{ fontFamily: "var(--mono)", marginBottom: 4 }}>{`{{${i + 1}}}`}</div>
+                    <select
+                      value={columnMode[i] || "fixed"}
+                      onChange={(e) => handleColumnModeChange(i, e.target.value)}
+                    >
+                      {(hasContactSource ? columnFieldOptions : ["fixed"]).map((opt) => (
+                        <option key={opt} value={opt}>{columnFieldLabel(opt)}</option>
+                      ))}
+                    </select>
+                    {(columnMode[i] || "fixed") === "fixed" && (
+                      <div className="col-fixed-apply">
+                        <input
+                          placeholder="value for everyone"
+                          value={fixedValueInputs[i] || ""}
+                          onChange={(e) => { const next = [...fixedValueInputs]; next[i] = e.target.value; setFixedValueInputs(next); }}
+                        />
+                        <button onClick={() => applyFixedValue(i)}>Apply to all</button>
+                      </div>
+                    )}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
@@ -516,6 +534,12 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
                     ))}
                   </div>
                 )}
+                {analysis?.bodyVarCount > 0 && (
+                  <div style={{ marginTop: 8, fontSize: 11.5, color: "var(--text-soft)" }}>
+                    This template has {analysis.bodyVarCount} variable(s) in the body — you'll set where each
+                    one's value comes from in the next step, after picking recipients.
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -531,33 +555,6 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
             </div>
           )}
 
-          {analysis?.bodyVarCount > 0 && (
-            <div className="field">
-              <label>
-                Body variables — default values{groupContacts.length > 0 ? ", used when a variable isn't mapped to a contact field below" : ", used unless a recipient's CSV row overrides them"}. You can still fine-tune per recipient in the next step.
-              </label>
-              {bodyVars.map((v, i) => (
-                <input key={i} placeholder={`{{${i + 1}}}`} value={v}
-                  onChange={(e) => { const next = [...bodyVars]; next[i] = e.target.value; setBodyVars(next); }}
-                  style={{ marginBottom: 6 }} />
-              ))}
-            </div>
-          )}
-
-          {groupContacts.length > 0 && analysis?.bodyVarCount > 0 && (
-            <div className="field">
-              <label>Personalize from contact fields</label>
-              {fieldMapping.map((key, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                  <span style={{ fontFamily: "var(--mono)", fontSize: 12, width: 34 }}>{`{{${i + 1}}}`}</span>
-                  <select value={key} onChange={(e) => { const next = [...fieldMapping]; next[i] = e.target.value; setFieldMapping(next); }} style={{ flex: 1 }}>
-                    {fieldOptions.map((opt) => <option key={opt} value={opt}>{fieldLabel(opt)}</option>)}
-                  </select>
-                </div>
-              ))}
-            </div>
-          )}
-
           {analysis?.dynamicUrlButtonIndex > -1 && (
             <div className="field">
               <label>Dynamic URL button suffix (same for every recipient)</label>
@@ -568,9 +565,9 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
           <div className="field">
             <label>Recipients</label>
 
-            {groupContacts.length > 0 ? (
+            {contactSelection.length > 0 ? (
               <div className="source-banner">
-                Sending to <strong>{groupContacts.length}</strong> contact(s) from <strong>{groupLabel}</strong>.
+                Sending to <strong>{contactSelection.length}</strong> contact(s) — <strong>{selectionLabel}</strong>.
                 <button type="button" onClick={clearRecipientSource}>Clear</button>
               </div>
             ) : (
@@ -595,8 +592,9 @@ export default function Broadcast({ prefill, onConsumePrefill }) {
                 </div>
                 <span style={{ fontSize: 11.5, color: "var(--text-soft)", marginTop: 4, display: "block" }}>
                   CSV format: <code>phone</code> alone for a plain broadcast, or <code>phone,value1,value2,...</code>
-                  to fill this template's body variables differently per recipient. Or pick a saved group from the
-                  Contacts tab instead — its fields can personalize the message too.
+                  to fill this template's body variables differently per recipient. Or go to the Contacts tab,
+                  select contacts there, and click Broadcast — you'll be able to pull their saved name, company,
+                  etc. straight into the message.
                 </span>
               </>
             )}

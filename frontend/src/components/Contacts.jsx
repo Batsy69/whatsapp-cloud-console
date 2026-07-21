@@ -52,11 +52,13 @@ function parseDirectoryCsv(text) {
 
 const emptyForm = () => ({ wa_id: "", name: "", company: "", city: "", state: "", email: "", group_id: "" });
 
-export default function Contacts({ onBroadcastToGroup }) {
+export default function Contacts({ onBroadcastToSelection }) {
   const [groups, setGroups] = useState([]);
   const [activeGroupId, setActiveGroupId] = useState(null);
   const [contacts, setContacts] = useState([]);
-  const [showAddForm, setShowAddForm] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [showForm, setShowForm] = useState(false);
+  const [editingWaId, setEditingWaId] = useState(null); // null = adding new, otherwise editing this contact
   const [form, setForm] = useState(emptyForm());
   const [newGroupName, setNewGroupName] = useState("");
   const [error, setError] = useState("");
@@ -68,18 +70,41 @@ export default function Contacts({ onBroadcastToGroup }) {
     const [g, c] = await Promise.all([api.getGroups(), api.getDirectory(activeGroupId)]);
     setGroups(g);
     setContacts(c);
+    setSelectedIds(new Set());
   }
 
   useEffect(() => { refresh(); }, [activeGroupId]);
 
-  async function handleAddContact(e) {
+  function openAddForm() {
+    setEditingWaId(null);
+    setForm(emptyForm());
+    setShowForm(true);
+  }
+
+  function openEditForm(contact) {
+    setEditingWaId(contact.wa_id);
+    setForm({
+      wa_id: contact.wa_id,
+      name: contact.name || "",
+      company: contact.company || "",
+      city: contact.city || "",
+      state: contact.state || "",
+      email: contact.email || "",
+      group_id: contact.group_id || "",
+    });
+    setShowForm(true);
+  }
+
+  async function handleSaveContact(e) {
     e.preventDefault();
     if (!form.wa_id.trim()) return;
     setError("");
     try {
-      await api.upsertDirectoryContact({ ...form, group_id: form.group_id || null });
+      await api.upsertDirectoryContact({ ...form, group_id: form.group_id ? Number(form.group_id) : null });
       setForm(emptyForm());
-      setShowAddForm(false);
+      setShowForm(false);
+      setEditingWaId(null);
+      setInfo(editingWaId ? "Contact updated." : "Contact added.");
       refresh();
     } catch (e2) {
       setError(e2.message);
@@ -137,10 +162,29 @@ export default function Contacts({ onBroadcastToGroup }) {
     }
   }
 
-  const activeGroupName = useMemo(
-    () => groups.find((g) => g.id === activeGroupId)?.name,
-    [groups, activeGroupId]
-  );
+  function toggleSelected(waId) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(waId)) next.delete(waId);
+      else next.add(waId);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    setSelectedIds((prev) => (prev.size === contacts.length ? new Set() : new Set(contacts.map((c) => c.wa_id))));
+  }
+
+  const activeGroupName = useMemo(() => groups.find((g) => g.id === activeGroupId)?.name, [groups, activeGroupId]);
+  const selectedContacts = useMemo(() => contacts.filter((c) => selectedIds.has(c.wa_id)), [contacts, selectedIds]);
+
+  function handleBroadcastClick() {
+    const list = selectedContacts.length > 0 ? selectedContacts : contacts;
+    const label = selectedContacts.length > 0
+      ? `${selectedContacts.length} selected contact(s)`
+      : activeGroupName || "All contacts";
+    onBroadcastToSelection(list, label);
+  }
 
   return (
     <div className="panel-view">
@@ -168,27 +212,32 @@ export default function Contacts({ onBroadcastToGroup }) {
         </div>
 
         <div className="card">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
             <h3 style={{ margin: 0 }}>{activeGroupName || "All contacts"} ({contacts.length})</h3>
             <div style={{ display: "flex", gap: 8 }}>
-              {activeGroupId && contacts.length > 0 && (
-                <button className="btn-primary" onClick={() => onBroadcastToGroup(contacts, activeGroupName)}>
-                  Broadcast to this group
-                </button>
-              )}
               <button className="btn-danger" style={{ borderColor: "var(--line)", color: "var(--text-soft)" }} disabled={busy} onClick={() => fileInputRef.current?.click()}>
                 {busy ? "Importing..." : "Import CSV"}
               </button>
               <input ref={fileInputRef} type="file" accept=".csv,.txt" style={{ display: "none" }} onChange={handleImport} />
-              <button className="btn-primary" onClick={() => setShowAddForm((v) => !v)}>
-                {showAddForm ? "Cancel" : "+ Add contact"}
-              </button>
+              <button className="btn-primary" onClick={openAddForm}>+ Add contact</button>
             </div>
           </div>
 
-          {showAddForm && (
-            <form onSubmit={handleAddContact} className="add-contact-form">
-              <input required placeholder="Phone (e.g. 919876543210)" value={form.wa_id} onChange={(e) => setForm({ ...form, wa_id: e.target.value })} />
+          {contacts.length > 0 && (
+            <div className="selection-bar">
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
+                <input type="checkbox" checked={selectedIds.size === contacts.length} onChange={toggleSelectAll} />
+                {selectedIds.size > 0 ? `${selectedIds.size} selected` : "Select all"}
+              </label>
+              <button className="btn-primary" onClick={handleBroadcastClick}>
+                Broadcast to {selectedContacts.length > 0 ? selectedContacts.length : contacts.length} {selectedContacts.length > 0 ? "selected" : ""} contact(s)
+              </button>
+            </div>
+          )}
+
+          {showForm && (
+            <form onSubmit={handleSaveContact} className="add-contact-form">
+              <input required placeholder="Phone (e.g. 919876543210)" value={form.wa_id} disabled={!!editingWaId} onChange={(e) => setForm({ ...form, wa_id: e.target.value })} />
               <input placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
               <input placeholder="Company" value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} />
               <input placeholder="City" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} />
@@ -198,17 +247,21 @@ export default function Contacts({ onBroadcastToGroup }) {
                 <option value="">No group</option>
                 {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
               </select>
-              <button className="btn-primary" type="submit">Save contact</button>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="btn-primary" type="submit">{editingWaId ? "Update contact" : "Save contact"}</button>
+                <button type="button" className="btn-danger" style={{ borderColor: "var(--line)", color: "var(--text-soft)" }} onClick={() => { setShowForm(false); setEditingWaId(null); }}>Cancel</button>
+              </div>
             </form>
           )}
 
           <table>
             <thead>
-              <tr><th>Name</th><th>Phone</th><th>Company</th><th>City</th><th>State</th><th>Email</th><th>Group</th><th></th></tr>
+              <tr><th></th><th>Name</th><th>Phone</th><th>Company</th><th>City</th><th>State</th><th>Email</th><th>Group</th><th></th></tr>
             </thead>
             <tbody>
               {contacts.map((c) => (
                 <tr key={c.wa_id}>
+                  <td><input type="checkbox" checked={selectedIds.has(c.wa_id)} onChange={() => toggleSelected(c.wa_id)} /></td>
                   <td>{c.name}</td>
                   <td style={{ fontFamily: "var(--mono)" }}>{c.wa_id}</td>
                   <td>{c.company || "—"}</td>
@@ -216,11 +269,14 @@ export default function Contacts({ onBroadcastToGroup }) {
                   <td>{c.state || "—"}</td>
                   <td>{c.email || "—"}</td>
                   <td>{c.group_name || "—"}</td>
-                  <td><button className="btn-danger" onClick={() => handleDeleteContact(c.wa_id)}>Delete</button></td>
+                  <td style={{ display: "flex", gap: 6 }}>
+                    <button className="btn-danger" style={{ borderColor: "var(--line)", color: "var(--text-soft)" }} onClick={() => openEditForm(c)}>Edit</button>
+                    <button className="btn-danger" onClick={() => handleDeleteContact(c.wa_id)}>Delete</button>
+                  </td>
                 </tr>
               ))}
               {contacts.length === 0 && (
-                <tr><td colSpan={8} style={{ color: "var(--text-soft)" }}>
+                <tr><td colSpan={9} style={{ color: "var(--text-soft)" }}>
                   No contacts yet. They're added automatically after any broadcast, or add/import them here.
                 </td></tr>
               )}
